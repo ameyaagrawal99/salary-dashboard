@@ -8,18 +8,16 @@ import { ThemeProvider, useTheme } from "@/lib/theme-provider";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calculator, BarChart3, Users, Sun, Moon, GraduationCap, Gamepad2 } from "lucide-react";
+import { Calculator, BarChart3, Users, Sun, Moon, GraduationCap } from "lucide-react";
 import NotFound from "@/pages/not-found";
 import CalculatorPage from "@/pages/calculator";
 import ComparisonPage from "@/pages/comparison";
 import BulkHiringPage from "@/pages/bulk-hiring";
-import SnakePage from "@/pages/snake";
 
 const NAV_ITEMS = [
   { path: "/", label: "Calculator", icon: Calculator },
   { path: "/comparison", label: "All Positions", icon: BarChart3 },
   { path: "/bulk-hiring", label: "Bulk Hiring", icon: Users },
-  { path: "/snake", label: "Snake", icon: Gamepad2 },
 ];
 
 function ThemeToggle() {
@@ -119,7 +117,6 @@ function Router() {
       <Route path="/" component={CalculatorPage} />
       <Route path="/comparison" component={ComparisonPage} />
       <Route path="/bulk-hiring" component={BulkHiringPage} />
-      <Route path="/snake" component={SnakePage} />
       <Route component={NotFound} />
     </Switch>
   );
