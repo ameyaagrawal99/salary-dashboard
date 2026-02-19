@@ -5,10 +5,12 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SettingsProvider } from "@/lib/settings-context";
 import { ThemeProvider, useTheme } from "@/lib/theme-provider";
+import { TourProvider, useTour } from "@/lib/tour-context";
 import { SettingsDialog } from "@/components/settings-dialog";
+import { TourOverlay } from "@/components/tour-overlay";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calculator, BarChart3, Users, Sun, Moon, GraduationCap } from "lucide-react";
+import { Calculator, BarChart3, Users, Sun, Moon, GraduationCap, PlayCircle } from "lucide-react";
 import NotFound from "@/pages/not-found";
 import CalculatorPage from "@/pages/calculator";
 import ComparisonPage from "@/pages/comparison";
@@ -29,11 +31,27 @@ function ThemeToggle() {
   );
 }
 
+function TourButton() {
+  const { startTour } = useTour();
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={startTour}
+      className="gap-1.5 text-xs"
+      data-testid="button-start-tour"
+    >
+      <PlayCircle className="h-3.5 w-3.5" />
+      Tour
+    </Button>
+  );
+}
+
 function DesktopNav() {
   const [location] = useLocation();
 
   return (
-    <nav className="hidden md:flex items-center gap-0.5" data-testid="nav-desktop">
+    <nav className="hidden md:flex items-center gap-0.5" data-testid="nav-desktop" data-tour-id="tour-nav">
       {NAV_ITEMS.map(item => {
         const isActive = location === item.path;
         return (
@@ -59,7 +77,7 @@ function MobileNav() {
   const currentItem = NAV_ITEMS.find(i => i.path === location) || NAV_ITEMS[0];
 
   return (
-    <div className="md:hidden" data-testid="nav-mobile">
+    <div className="md:hidden" data-testid="nav-mobile" data-tour-id="tour-nav">
       <Select
         value={location}
         onValueChange={(val) => setLocation(val)}
@@ -103,6 +121,7 @@ function AppHeader() {
         <MobileNav />
 
         <div className="flex items-center gap-1">
+          <TourButton />
           <ThemeToggle />
           <SettingsDialog />
         </div>
@@ -122,28 +141,39 @@ function Router() {
   );
 }
 
+function AppContent() {
+  const [, setLocation] = useLocation();
+
+  return (
+    <TourProvider onNavigate={setLocation}>
+      <div className="min-h-screen flex flex-col">
+        <AppHeader />
+        <main className="flex-1">
+          <Router />
+        </main>
+        <footer className="border-t py-4 text-center text-xs text-muted-foreground/60 font-medium space-y-1">
+          <p>WPU GOA Faculty Salary Calculator | UGC 7th CPC Pay Commission</p>
+          <p>
+            Made by{' '}
+            <a href="https://www.linkedin.com/in/ameyaagrawal" target="_blank" rel="noopener noreferrer" className="underline hover-elevate" data-testid="link-linkedin">Ameya Agrawal</a>
+            {' | '}
+            <a href="https://ameya.page" target="_blank" rel="noopener noreferrer" className="underline hover-elevate" data-testid="link-website">Ameya.page</a>
+          </p>
+        </footer>
+      </div>
+      <Toaster />
+      <TourOverlay />
+    </TourProvider>
+  );
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <ThemeProvider>
           <SettingsProvider>
-            <div className="min-h-screen flex flex-col">
-              <AppHeader />
-              <main className="flex-1">
-                <Router />
-              </main>
-              <footer className="border-t py-4 text-center text-xs text-muted-foreground/60 font-medium space-y-1">
-                <p>WPU GOA Faculty Salary Calculator | UGC 7th CPC Pay Commission</p>
-                <p>
-                  Made by{' '}
-                  <a href="https://www.linkedin.com/in/ameyaagrawal" target="_blank" rel="noopener noreferrer" className="underline hover-elevate" data-testid="link-linkedin">Ameya Agrawal</a>
-                  {' | '}
-                  <a href="https://ameya.page" target="_blank" rel="noopener noreferrer" className="underline hover-elevate" data-testid="link-website">Ameya.page</a>
-                </p>
-              </footer>
-            </div>
-            <Toaster />
+            <AppContent />
           </SettingsProvider>
         </ThemeProvider>
       </TooltipProvider>

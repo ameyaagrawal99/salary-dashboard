@@ -111,7 +111,7 @@ export default function BulkHiringPage() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" data-tour-id="tour-bulk-stats">
           <Card className="bg-muted/30" data-testid="card-stat-faculty">
             <CardContent className="p-4 space-y-1">
               <Users className="h-5 w-5 text-muted-foreground" />

@@ -48,7 +48,7 @@ export function SettingsDialog() {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button size="icon" variant="ghost" data-testid="button-settings">
+        <Button size="icon" variant="ghost" data-testid="button-settings" data-tour-id="tour-settings-button">
           <Settings className="h-4 w-4" />
         </Button>
       </DialogTrigger>

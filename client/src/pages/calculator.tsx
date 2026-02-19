@@ -176,7 +176,7 @@ export default function CalculatorPage() {
           {/* LEFT PANEL - INPUTS */}
           <div className="space-y-4">
             {/* Position Selector */}
-            <Card>
+            <Card data-tour-id="tour-position-experience">
               <CardHeader className="pb-3">
                 <CardTitle className="text-[15px] flex items-center gap-2">
                   <Settings2 className="h-4 w-4 text-muted-foreground" />
@@ -307,7 +307,7 @@ export default function CalculatorPage() {
             </Collapsible>
 
             {/* DA & City - Always visible on desktop */}
-            <Card className="hidden lg:block">
+            <Card className="hidden lg:block" data-tour-id="tour-allowances">
               <CardHeader className="pb-3">
                 <CardTitle className="text-[15px] flex items-center gap-2">
                   <IndianRupee className="h-4 w-4 text-muted-foreground" />
@@ -404,7 +404,7 @@ export default function CalculatorPage() {
             </Collapsible>
 
             {/* Financial Strategy - Always visible on desktop */}
-            <Card className="hidden lg:block">
+            <Card className="hidden lg:block" data-tour-id="tour-financial-strategy">
               <CardHeader className="pb-3">
                 <CardTitle className="text-[15px] flex items-center gap-2">
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
@@ -547,7 +547,7 @@ export default function CalculatorPage() {
             </Collapsible>
 
             {/* Benefits - Always visible on desktop */}
-            <Card className="hidden lg:block">
+            <Card className="hidden lg:block" data-tour-id="tour-benefits">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div>
@@ -647,7 +647,7 @@ export default function CalculatorPage() {
 
           {/* RIGHT PANEL - RESULTS */}
           <div className="space-y-4">
-            <Card>
+            <Card data-tour-id="tour-salary-results">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
@@ -725,7 +725,7 @@ export default function CalculatorPage() {
             </Card>
 
             {/* Detailed Breakdown */}
-            <Card>
+            <Card data-tour-id="tour-breakdown">
               <CardHeader className="pb-3 space-y-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <CardTitle className="text-[15px]">Detailed Breakdown</CardTitle>
@@ -841,7 +841,7 @@ export default function CalculatorPage() {
             </Card>
 
             {/* Composition Chart */}
-            <Card>
+            <Card data-tour-id="tour-chart">
               <CardHeader className="pb-3">
                 <CardTitle className="text-[15px] flex items-center gap-2">
                   <PieChartIcon className="h-4 w-4 text-muted-foreground" />
