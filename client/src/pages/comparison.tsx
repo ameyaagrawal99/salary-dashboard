@@ -150,7 +150,7 @@ export default function ComparisonPage() {
           </div>
         )}
 
-        <Card>
+        <Card data-tour-id="tour-comparison-chart">
           <CardHeader>
             <div className="flex items-center gap-2">
               <BarChart3 className="h-5 w-5 text-muted-foreground" />
