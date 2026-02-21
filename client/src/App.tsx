@@ -6,15 +6,17 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SettingsProvider } from "@/lib/settings-context";
 import { ThemeProvider, useTheme } from "@/lib/theme-provider";
 import { Button } from "@/components/ui/button";
-import { Sun, Moon, Gamepad2, Calculator, BarChart3, Users } from "lucide-react";
+import { Sun, Moon, Brain, Gamepad2, Calculator, BarChart3, Users } from "lucide-react";
 import NotFound from "@/pages/not-found";
 import CalculatorPage from "@/pages/calculator";
 import ComparisonPage from "@/pages/comparison";
 import BulkHiringPage from "@/pages/bulk-hiring";
 import SnakePage from "@/pages/snake";
+import BrainPage from "@/pages/brain";
 
 const NAV_ITEMS = [
-  { path: "/", label: "Play Snake", icon: Gamepad2 },
+  { path: "/", label: "Brain 2.0", icon: Brain },
+  { path: "/snake", label: "Play Snake", icon: Gamepad2 },
   { path: "/calculator", label: "Calculator", icon: Calculator },
   { path: "/comparison", label: "All Positions", icon: BarChart3 },
   { path: "/bulk-hiring", label: "Bulk Hiring", icon: Users },
@@ -59,12 +61,12 @@ function AppHeader() {
       <div className="max-w-7xl mx-auto px-4 py-2.5 flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-2.5">
           <div className="p-1.5 rounded-md bg-primary/10">
-            <Gamepad2 className="h-5 w-5 text-primary" />
+            <Brain className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h1 className="text-base font-semibold tracking-tight leading-none">Snake That Bites</h1>
+            <h1 className="text-base font-semibold tracking-tight leading-none">Brain 2.0</h1>
             <p className="text-[10px] text-muted-foreground uppercase tracking-widest leading-none mt-0.5">
-              Classic Snake + sarcasm
+              Telegram Thoughts Console
             </p>
           </div>
         </div>
@@ -82,7 +84,8 @@ function AppHeader() {
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={SnakePage} />
+      <Route path="/" component={BrainPage} />
+      <Route path="/snake" component={SnakePage} />
       <Route path="/calculator" component={CalculatorPage} />
       <Route path="/comparison" component={ComparisonPage} />
       <Route path="/bulk-hiring" component={BulkHiringPage} />

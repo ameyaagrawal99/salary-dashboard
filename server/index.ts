@@ -3,6 +3,15 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
+try {
+  const maybeLoadEnvFile = (process as unknown as { loadEnvFile?: () => void }).loadEnvFile;
+  if (typeof maybeLoadEnvFile === "function") {
+    maybeLoadEnvFile();
+  }
+} catch {
+  // Ignore .env loading issues; runtime env vars still take precedence.
+}
+
 const app = express();
 const httpServer = createServer(app);
 

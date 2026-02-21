@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: ameya-brain2-console
+    runtime: node
+    plan: free
+    autoDeploy: true
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/brain/status
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: BRAIN_SHEET_URL
+        value: https://docs.google.com/spreadsheets/d/1NAXIJpRcYgQpEFV9jYMfYLR6c8WtNnps36_WxvgCesc/edit?usp=sharing
+      - key: BRAIN_SHEET_TAB
+        value: Thought Inbox
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: GOOGLE_SHEETS_ACCESS_TOKEN
+        sync: false
+      - key: GOOGLE_SHEETS_API_KEY
+        sync: false
