@@ -24,15 +24,18 @@ import {
   Moon,
   PlayCircle,
   Brain,
+  Gamepad2,
 } from "lucide-react";
 import NotFound from "@/pages/not-found";
 import CalculatorPage from "@/pages/calculator";
 import ComparisonPage from "@/pages/comparison";
 import BulkHiringPage from "@/pages/bulk-hiring";
+import SnakePage from "@/pages/snake";
 import BrainPage from "@/pages/brain";
 
 const NAV_ITEMS = [
   { path: "/", label: "Brain 2.0", icon: Brain },
+  { path: "/snake", label: "Play Snake", icon: Gamepad2 },
   { path: "/calculator", label: "Calculator", icon: Calculator },
   { path: "/comparison", label: "All Positions", icon: BarChart3 },
   { path: "/bulk-hiring", label: "Bulk Hiring", icon: Users },
@@ -149,6 +152,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={BrainPage} />
+      <Route path="/snake" component={SnakePage} />
       <Route path="/calculator" component={CalculatorPage} />
       <Route path="/comparison" component={ComparisonPage} />
       <Route path="/bulk-hiring" component={BulkHiringPage} />
