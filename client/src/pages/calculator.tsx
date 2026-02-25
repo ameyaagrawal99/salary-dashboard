@@ -25,6 +25,7 @@ import {
 } from '@/lib/ugc-data';
 import {
   calculateComparison,
+  calculate8thCPCSalary,
   getCellsForLevel,
   suggestCellFromExperience,
   formatCurrencyINR,
@@ -129,6 +130,20 @@ export default function CalculatorPage() {
       settings.positionSalaryCaps[positionId]
     );
   }, [position, positionId, cellIndex, daPercent, cityType, multiplier, annualPremium, strategy, settings.multiplierMethod, benefits, settings.isTPTACity, settings.hraConfig, settings.enforcementMode, settings.positionPremiumRanges, settings.positionSalaryCaps]);
+
+  const eighthCpc = useMemo(() => {
+    return calculate8thCPCSalary(
+      comparison.ugc.basic,
+      settings.eighthCpcFitmentFactor,
+      settings.eighthCpcDaPercent,
+      cityType,
+      position.level,
+      position.specialAllowance,
+      settings.isTPTACity,
+      settings.hraConfig,
+      comparison.ugc.totalMonthly
+    );
+  }, [comparison.ugc, settings.eighthCpcFitmentFactor, settings.eighthCpcDaPercent, cityType, position.level, position.specialAllowance, settings.isTPTACity, settings.hraConfig]);
 
   const enforcement = comparison.wpu.enforcement;
 
@@ -719,6 +734,63 @@ export default function CalculatorPage() {
                     >
                       {comparison.premiumPercentage >= 0 ? '+' : ''}{comparison.premiumPercentage.toFixed(1)}%
                     </Badge>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* 8th CPC Projected Salary */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <IndianRupee className="h-4 w-4 text-muted-foreground" />
+                  8th Pay Commission – Projected Salary
+                  <Badge variant="secondary" className="no-default-hover-elevate no-default-active-elevate text-[10px] ml-auto">
+                    FF × {settings.eighthCpcFitmentFactor}
+                  </Badge>
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Effective Jan 1, 2026 (notional) · DA resets to {settings.eighthCpcDaPercent}% · Configure in Settings
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="rounded-md bg-muted/30 p-3">
+                    <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-widest font-medium">8th CPC Basic</p>
+                    <p className="text-lg font-bold tabular-nums">{formatCurrencyINR(eighthCpc.basic)}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">vs 7th: {formatCurrencyINR(comparison.ugc.basic)}</p>
+                  </div>
+                  <div className="rounded-md bg-muted/30 p-3">
+                    <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-widest font-medium">8th CPC Monthly</p>
+                    <p className="text-lg font-bold tabular-nums">{formatCurrencyINR(eighthCpc.totalMonthly)}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">{formatCurrencyINR(eighthCpc.totalAnnual)}/yr</p>
+                  </div>
+                  <div className="rounded-md bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 p-3">
+                    <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-widest font-medium">Uplift vs 7th CPC</p>
+                    <p className="text-lg font-bold tabular-nums text-purple-700 dark:text-purple-300">
+                      +{eighthCpc.incrementOverSeventhPercent.toFixed(1)}%
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      +{formatCurrencyINR(eighthCpc.totalMonthly - comparison.ugc.totalMonthly)}/mo
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  <div className="rounded-md bg-muted/20 p-2">
+                    <p className="text-muted-foreground">Basic Pay</p>
+                    <p className="font-medium tabular-nums">{formatCurrencyINR(eighthCpc.basic)}</p>
+                  </div>
+                  <div className="rounded-md bg-muted/20 p-2">
+                    <p className="text-muted-foreground">DA ({settings.eighthCpcDaPercent}%)</p>
+                    <p className="font-medium tabular-nums">{formatCurrencyINR(eighthCpc.da)}</p>
+                  </div>
+                  <div className="rounded-md bg-muted/20 p-2">
+                    <p className="text-muted-foreground">HRA</p>
+                    <p className="font-medium tabular-nums">{formatCurrencyINR(eighthCpc.hra)}</p>
+                  </div>
+                  <div className="rounded-md bg-muted/20 p-2">
+                    <p className="text-muted-foreground">TA</p>
+                    <p className="font-medium tabular-nums">{formatCurrencyINR(eighthCpc.ta)}</p>
                   </div>
                 </div>
               </CardContent>

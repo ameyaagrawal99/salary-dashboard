@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useSettings, type EnforcementMode, type HraMode } from '@/lib/settings-context';
-import { MULTIPLIER_METHODS, FINANCIAL_STRATEGIES, HRA_RATES, FACULTY_POSITIONS, PAY_MATRIX, type CityType } from '@/lib/ugc-data';
+import { MULTIPLIER_METHODS, FINANCIAL_STRATEGIES, HRA_RATES, FACULTY_POSITIONS, PAY_MATRIX, EIGHTH_CPC_FITMENT_FACTORS, type CityType } from '@/lib/ugc-data';
 import { InfoTooltip } from './info-tooltip';
 import { NumericInput } from './numeric-input';
 import { Switch } from '@/components/ui/switch';
@@ -385,6 +385,53 @@ export function SettingsDialog() {
                 <label htmlFor="tooltip-concise" className="cursor-pointer text-sm">Concise</label>
               </div>
             </RadioGroup>
+          </div>
+
+          <Separator />
+
+          <div>
+            <div className="flex items-center gap-2 mb-2.5">
+              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">8th Pay Commission</Label>
+              <InfoTooltip
+                shortText="8th CPC projection settings"
+                title="8th Pay Commission Settings"
+                detail={`The 8th Pay Commission was notified on November 3, 2025, effective January 1, 2026.\n\nRevised Basic = 7th CPC Basic × Fitment Factor\nDA resets to 0% on implementation day and accumulates again thereafter.\n\nFitment factor range: 1.83–3.25 (most discussed: 2.28)`}
+              />
+            </div>
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1 block">Fitment Factor</Label>
+                <Select
+                  value={String(settings.eighthCpcFitmentFactor)}
+                  onValueChange={(v) => updateSettings({ eighthCpcFitmentFactor: parseFloat(v) })}
+                >
+                  <SelectTrigger data-testid="select-8th-cpc-fitment-factor">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EIGHTH_CPC_FITMENT_FACTORS.map(f => (
+                      <SelectItem key={f.value} value={String(f.value)}>{f.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1 block">
+                  Projected DA on 8th CPC Basic (%)
+                </Label>
+                <NumericInput
+                  value={settings.eighthCpcDaPercent}
+                  onChange={(v) => updateSettings({ eighthCpcDaPercent: v })}
+                  min={0}
+                  max={100}
+                  step={1}
+                  data-testid="input-8th-cpc-da-percent"
+                />
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  DA resets to 0% on 8th CPC implementation. Adjust for future projections.
+                </p>
+              </div>
+            </div>
           </div>
 
           <Separator />
