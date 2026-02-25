@@ -48,6 +48,8 @@ export interface GlobalSettings {
   positionPremiumRanges: Record<number, PositionPremiumRange>;
   positionSalaryCaps: Record<number, PositionSalaryCap>;
   hraConfig: HraConfig;
+  eighthCpcFitmentFactor: number;
+  eighthCpcDaPercent: number;
 }
 
 const DEFAULT_GLOBAL_BENEFITS: Benefits = {
@@ -67,7 +69,7 @@ const DEFAULT_LEVEL_BENEFITS: LevelBenefits = {
   "15": { housing: 54167, professionalDev: 8333, ppfPercent: 12, gratuityPercent: 4.81, healthInsurance: 1250 },
 };
 
-const SETTINGS_VERSION = 5;
+const SETTINGS_VERSION = 6;
 
 const DEFAULT_HRA_CONFIG: HraConfig = {
   providingHousing: true,
@@ -101,6 +103,8 @@ const DEFAULT_SETTINGS: GlobalSettings = {
   positionPremiumRanges: {},
   positionSalaryCaps: DEFAULT_POSITION_SALARY_CAPS,
   hraConfig: DEFAULT_HRA_CONFIG,
+  eighthCpcFitmentFactor: 2.28,
+  eighthCpcDaPercent: 0,
 };
 
 interface SettingsContextType {

@@ -198,6 +198,16 @@ export const DA_HISTORY = [
   { date: "Jan 2022", rate: 34, label: "" },
 ];
 
+export const EIGHTH_CPC_FITMENT_FACTORS: { value: number; label: string }[] = [
+  { value: 1.83, label: "1.83 (Lower bound estimate)" },
+  { value: 1.92, label: "1.92 (Conservative estimate)" },
+  { value: 2.28, label: "2.28 (Widely proposed)" },
+  { value: 2.46, label: "2.46 (Mid estimate)" },
+  { value: 2.57, label: "2.57 (Same as 7th CPC)" },
+  { value: 2.86, label: "2.86 (Employee union demand)" },
+  { value: 3.25, label: "3.25 (Maximum union demand)" },
+];
+
 export type FinancialStrategy = 'multiplier' | 'premium' | 'both' | 'higher' | 'lower';
 
 export const FINANCIAL_STRATEGIES: { value: FinancialStrategy; label: string; description: string }[] = [

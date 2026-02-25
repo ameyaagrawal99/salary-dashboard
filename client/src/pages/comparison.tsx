@@ -14,12 +14,13 @@ import { InfoTooltip } from '@/components/info-tooltip';
 import { useSettings } from '@/lib/settings-context';
 import { FACULTY_POSITIONS, PAY_MATRIX } from '@/lib/ugc-data';
 import {
-  calculateComparison, suggestCellFromExperience, formatCurrencyINR, formatCurrency
+  calculateComparison, calculate8thCPCSalary, suggestCellFromExperience, formatCurrencyINR, formatCurrency
 } from '@/lib/salary-calculator';
 
 const INDIGO = 'hsl(230, 55%, 55%)';
 const GREEN = 'hsl(160, 45%, 48%)';
 const AMBER = 'hsl(30, 70%, 55%)';
+const PURPLE = 'hsl(270, 45%, 55%)';
 
 function currencyTooltipFormatter(value: number) {
   return formatCurrencyINR(value);
@@ -67,10 +68,22 @@ export default function ComparisonPage() {
         settings.positionPremiumRanges[pos.id],
         settings.positionSalaryCaps[pos.id]
       );
+      const eighthCpc = calculate8thCPCSalary(
+        result.ugc.basic,
+        settings.eighthCpcFitmentFactor,
+        settings.eighthCpcDaPercent,
+        settings.cityType,
+        pos.level,
+        pos.specialAllowance,
+        settings.isTPTACity,
+        settings.hraConfig,
+        result.ugc.totalMonthly
+      );
       return {
         position: pos,
         cellIndex,
         result,
+        eighthCpc,
       };
     });
   }, [settings, getBenefitsForPosition]);
@@ -83,6 +96,7 @@ export default function ComparisonPage() {
   const barChartData = filteredData.map((d) => ({
     name: d.position.shortTitle,
     'UGC Annual': d.result.ugc.totalAnnual,
+    '8th CPC Annual': d.eighthCpc.totalAnnual,
     'WPU Salary': d.result.wpu.totalSalaryAnnual,
     'WPU Benefits': d.result.wpu.benefits.totalAnnual,
   }));
@@ -95,7 +109,7 @@ export default function ComparisonPage() {
             All Positions Comparison
           </h1>
           <p className="text-sm text-muted-foreground" data-testid="text-page-description">
-            Side-by-side comparison of UGC and WPU GOA salary structures across all 8 faculty positions.
+            Side-by-side comparison of UGC 7th CPC, projected 8th CPC, and WPU GOA salary structures across all 8 faculty positions.
           </p>
         </div>
 
@@ -172,6 +186,7 @@ export default function ComparisonPage() {
                     <Tooltip formatter={currencyTooltipFormatter} />
                     <Legend />
                     <Bar dataKey="UGC Annual" fill={INDIGO} radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="8th CPC Annual" fill={PURPLE} radius={[2, 2, 0, 0]} />
                     <Bar dataKey="WPU Salary" stackId="wpu" fill={GREEN} />
                     <Bar dataKey="WPU Benefits" stackId="wpu" fill={AMBER} radius={[2, 2, 0, 0]} />
                   </BarChart>
@@ -237,6 +252,16 @@ export default function ComparisonPage() {
                   </TableHead>
                   <TableHead className="text-right">
                     <div className="flex items-center justify-end gap-1">
+                      8th CPC Annual
+                      <InfoTooltip
+                        shortText="Projected 8th CPC annual salary"
+                        title="8th CPC Projected Annual Salary"
+                        detail="Projected annual salary under the 8th Pay Commission using the configured fitment factor. DA starts at 0% on implementation day (January 1, 2026). Configure the fitment factor and projected DA in Settings."
+                      />
+                    </div>
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <div className="flex items-center justify-end gap-1">
                       WPU Salary
                       <InfoTooltip
                         shortText="WPU GOA annual salary"
@@ -287,6 +312,9 @@ export default function ComparisonPage() {
                       <TableCell>{d.cellIndex + 1}</TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatCurrency(d.result.ugc.totalAnnual, true)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-purple-700 dark:text-purple-300 font-medium">
+                        {formatCurrency(d.eighthCpc.totalAnnual, true)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         <span className={d.result.wpu.enforcement.salaryCapped || d.result.wpu.enforcement.salaryBelowMin ? 'text-red-600 dark:text-red-400' : ''}>
@@ -354,6 +382,8 @@ export default function ComparisonPage() {
                       <span className="text-right tabular-nums">{d.position.level} / {d.cellIndex + 1}</span>
                       <span className="text-muted-foreground">UGC Annual</span>
                       <span className="text-right tabular-nums">{formatCurrency(d.result.ugc.totalAnnual, true)}</span>
+                      <span className="text-muted-foreground">8th CPC Annual</span>
+                      <span className="text-right tabular-nums text-purple-700 dark:text-purple-300 font-medium">{formatCurrency(d.eighthCpc.totalAnnual, true)}</span>
                       <span className="text-muted-foreground">WPU Salary</span>
                       <span className={`text-right tabular-nums ${d.result.wpu.enforcement.salaryCapped || d.result.wpu.enforcement.salaryBelowMin ? 'text-red-600 dark:text-red-400' : ''}`}>{formatCurrency(d.result.wpu.totalSalaryAnnual, true)}</span>
                       <span className="text-muted-foreground">WPU CTC</span>

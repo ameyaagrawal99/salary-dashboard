@@ -75,6 +75,20 @@ export interface ComparisonResult {
   premiumPercentage: number;
 }
 
+export interface EighthCPCSalaryBreakdown {
+  fitmentFactor: number;
+  seventhBasic: number;
+  basic: number;
+  da: number;
+  hra: number;
+  hraMode: 'percent' | 'lumpsum' | 'none';
+  ta: number;
+  specialAllowance: number;
+  totalMonthly: number;
+  totalAnnual: number;
+  incrementOverSeventhPercent: number;
+}
+
 export function getCellAmount(level: string, cellIndex: number): number {
   const cells = PAY_MATRIX[level];
   if (!cells || cellIndex < 0 || cellIndex >= cells.length) return 0;
@@ -394,6 +408,41 @@ export function calculateComparison(
     premiumAmountMonthly,
     premiumAmountAnnual,
     premiumPercentage
+  };
+}
+
+export function calculate8thCPCSalary(
+  seventhBasic: number,
+  fitmentFactor: number,
+  daPercent: number,
+  cityType: CityType,
+  level: string,
+  specialAllowance: number = 0,
+  isTPTACity: boolean = false,
+  hraConfig?: HraConfig,
+  seventhTotalMonthly: number = 0
+): EighthCPCSalaryBreakdown {
+  const basic = Math.round(seventhBasic * fitmentFactor);
+  const da = calculateDA(basic, daPercent);
+  const hraResult = calculateHRA(basic, cityType, hraConfig);
+  const ta = calculateTA(level, daPercent, isTPTACity);
+  const totalMonthly = basic + da + hraResult.amount + ta + specialAllowance;
+  const incrementOverSeventhPercent = seventhTotalMonthly > 0
+    ? ((totalMonthly - seventhTotalMonthly) / seventhTotalMonthly) * 100
+    : 0;
+
+  return {
+    fitmentFactor,
+    seventhBasic,
+    basic,
+    da,
+    hra: hraResult.amount,
+    hraMode: hraResult.mode,
+    ta,
+    specialAllowance,
+    totalMonthly,
+    totalAnnual: totalMonthly * 12,
+    incrementOverSeventhPercent,
   };
 }
 
