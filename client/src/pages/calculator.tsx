@@ -25,6 +25,7 @@ import {
 } from '@/lib/ugc-data';
 import {
   calculateComparison,
+  calculateWPUSalary,
   calculate8thCPCSalary,
   getCellsForLevel,
   suggestCellFromExperience,
@@ -45,7 +46,7 @@ const CHART_COLORS = [
 ];
 
 export default function CalculatorPage() {
-  const { settings, getBenefitsForPosition, setBenefitsForPosition, clearPositionBenefits, getBenefitsSource } = useSettings();
+  const { settings, updateSettings, getBenefitsForPosition, setBenefitsForPosition, clearPositionBenefits, getBenefitsSource } = useSettings();
 
   const [positionId, setPositionId] = useState(1);
   const [experience, setExperience] = useState(0);
@@ -59,7 +60,13 @@ export default function CalculatorPage() {
   const [daHistoryOpen, setDaHistoryOpen] = useState(false);
   const [benefitInputMode, setBenefitInputMode] = useState<'monthly' | 'annual'>('annual');
   const [breakdownView, setBreakdownView] = useState<'monthly' | 'annual'>('monthly');
-  const [breakdownTab, setBreakdownTab] = useState<'combined' | 'ugc' | 'wpu'>('combined');
+  const [breakdownTab, setBreakdownTab] = useState<'comparison' | 'ugc7' | 'cpc8' | 'wpu'>('comparison');
+  const [salaryCardView, setSalaryCardView] = useState<'monthly' | 'annual'>('monthly');
+  const [wpuSubTab, setWpuSubTab] = useState<'7th' | '8th'>('7th');
+  const [compareMode, setCompareMode] = useState<'all' | 'selected'>('all');
+  const [selectedCompare, setSelectedCompare] = useState<Record<CompareColId, boolean>>({
+    ugc7: true, cpc8: true, wpu_sal: true, wpu_ctc: true, wpu8_sal: true, wpu8_ctc: true,
+  });
   const [allowancesOpen, setAllowancesOpen] = useState(false);
   const [strategyOpen, setStrategyOpen] = useState(false);
   const [benefitsOpen, setBenefitsOpen] = useState(false);
@@ -145,7 +152,32 @@ export default function CalculatorPage() {
     );
   }, [comparison.ugc, settings.eighthCpcFitmentFactor, settings.eighthCpcDaPercent, cityType, position.level, position.specialAllowance, settings.isTPTACity, settings.hraConfig]);
 
-  const enforcement = comparison.wpu.enforcement;
+  const wpuOn8th = useMemo(() => {
+    if (settings.wpuBasePay === '7th') return null;
+    return calculateWPUSalary(
+      eighthCpc,
+      multiplier,
+      annualPremium,
+      strategy,
+      settings.multiplierMethod,
+      benefits,
+      settings.eighthCpcDaPercent,
+      cityType,
+      position.level,
+      position.specialAllowance,
+      settings.isTPTACity,
+      settings.hraConfig,
+      settings.enforcementMode,
+      settings.positionPremiumRanges[positionId],
+      settings.positionSalaryCaps[positionId],
+    );
+  }, [eighthCpc, multiplier, annualPremium, strategy, settings.multiplierMethod, benefits,
+    settings.eighthCpcDaPercent, cityType, position, settings.isTPTACity, settings.hraConfig,
+    settings.enforcementMode, settings.positionPremiumRanges, settings.positionSalaryCaps,
+    positionId, settings.wpuBasePay]);
+
+  const activeWpu = settings.wpuBasePay === '8th' && wpuOn8th ? wpuOn8th : comparison.wpu;
+  const enforcement = activeWpu.enforcement;
 
   const premiumRange = settings.positionPremiumRanges[positionId];
   const hasPositionPremiumRange = premiumRange && (premiumRange.minPremium > 0 || premiumRange.maxPremium > 0);
@@ -662,63 +694,170 @@ export default function CalculatorPage() {
 
           {/* RIGHT PANEL - RESULTS */}
           <div className="space-y-4">
+            {/* Unified Salary Comparison Card */}
             <Card data-tour-id="tour-salary-results">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                  Salary Comparison
-                </CardTitle>
-                <CardDescription className="text-xs">{position.title}</CardDescription>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div>
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                      Salary Comparison
+                    </CardTitle>
+                    <CardDescription className="text-xs mt-0.5">{position.title}</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-0.5 rounded-md bg-muted/30 p-0.5">
+                    <Button variant="ghost" size="sm" className={`toggle-elevate ${salaryCardView === 'monthly' ? 'toggle-elevated' : ''}`} onClick={() => setSalaryCardView('monthly')}>Monthly</Button>
+                    <Button variant="ghost" size="sm" className={`toggle-elevate ${salaryCardView === 'annual' ? 'toggle-elevated' : ''}`} onClick={() => setSalaryCardView('annual')}>Annual</Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="rounded-md bg-muted/30 p-3">
-                    <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-widest font-medium">UGC 7th CPC</p>
-                    <p className="text-lg font-bold tabular-nums" data-testid="text-ugc-total">{formatCurrencyINR(comparison.ugc.totalMonthly)}</p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">{formatCurrencyINR(comparison.ugc.totalAnnual)}/yr</p>
-                  </div>
-                  <div className={`rounded-md p-3 ${enforcement.salaryCapped || enforcement.salaryBelowMin ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800' : 'bg-muted/30'}`}>
-                    <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                      <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-medium">WPU GOA Salary</p>
-                      {enforcement.salaryCapped && (
-                        <Badge variant="secondary" className="no-default-hover-elevate no-default-active-elevate text-[9px] px-1.5 py-0 bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400" data-testid="badge-salary-capped">
-                          {settings.enforcementMode === 'hard' ? 'CAPPED' : 'EXCEEDS MAX'}
-                        </Badge>
-                      )}
-                      {enforcement.salaryBelowMin && (
-                        <Badge variant="secondary" className="no-default-hover-elevate no-default-active-elevate text-[9px] px-1.5 py-0 bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400" data-testid="badge-salary-below-min">
-                          BELOW MIN
-                        </Badge>
-                      )}
+                {/* Standard 4-column layout (single WPU base) */}
+                {settings.wpuBasePay !== 'both' && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {/* UGC 7th Pay */}
+                    <div className="rounded-md bg-muted/30 p-2.5">
+                      <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-widest font-medium">UGC 7th Pay</p>
+                      <p className="text-base font-bold tabular-nums" data-testid="text-ugc-total">
+                        {formatCurrencyINR(salaryCardView === 'monthly' ? comparison.ugc.totalMonthly : comparison.ugc.totalAnnual)}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {salaryCardView === 'monthly' ? `${formatCurrencyINR(comparison.ugc.totalAnnual)}/yr` : `${formatCurrencyINR(comparison.ugc.totalMonthly)}/mo`}
+                      </p>
                     </div>
-                    <p className="text-lg font-bold tabular-nums" data-testid="text-wpu-salary">{formatCurrencyINR(comparison.wpu.totalSalaryMonthly)}</p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">{formatCurrencyINR(comparison.wpu.totalSalaryAnnual)}/yr</p>
-                    {enforcement.salaryCapped && settings.enforcementMode === 'hard' && (
-                      <p className="text-[9px] text-red-600 dark:text-red-400 mt-0.5">Original: {formatCurrencyINR(enforcement.originalSalaryAnnual)}/yr</p>
-                    )}
-                  </div>
-                  <div className={`rounded-md border p-3 ${enforcement.ctcCapped ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-primary/5 dark:bg-primary/10 border-primary/15'}`}>
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-medium">WPU GOA CTC</p>
-                      {enforcement.ctcCapped && (
-                        <Badge variant="secondary" className="no-default-hover-elevate no-default-active-elevate text-[9px] px-1.5 py-0 bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400" data-testid="badge-ctc-capped">
-                          {settings.enforcementMode === 'hard' ? 'CAPPED' : 'EXCEEDS CAP'}
-                        </Badge>
-                      )}
+                    {/* 8th Pay (Proposed) */}
+                    <div className="rounded-md bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 p-2.5">
+                      <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-widest font-medium">8th Pay (Proposed)</p>
+                      <p className="text-base font-bold tabular-nums text-purple-700 dark:text-purple-300">
+                        {formatCurrencyINR(salaryCardView === 'monthly' ? eighthCpc.totalMonthly : eighthCpc.totalAnnual)}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {salaryCardView === 'monthly' ? `${formatCurrencyINR(eighthCpc.totalAnnual)}/yr` : `${formatCurrencyINR(eighthCpc.totalMonthly)}/mo`}
+                      </p>
+                      <p className="text-[10px] text-purple-600 dark:text-purple-400 mt-0.5">FF×{settings.eighthCpcFitmentFactor} · +{eighthCpc.incrementOverSeventhPercent.toFixed(1)}%</p>
                     </div>
-                    <p className="text-lg font-bold tabular-nums" data-testid="text-wpu-total">{formatCurrencyINR(comparison.wpu.totalCTCMonthly)}</p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">{formatCurrencyINR(comparison.wpu.totalCTCAnnual)}/yr</p>
-                    {enforcement.ctcCapped && settings.enforcementMode === 'hard' && (
-                      <p className="text-[9px] text-red-600 dark:text-red-400 mt-0.5">Original: {formatCurrencyINR(enforcement.originalCTCAnnual)}/yr</p>
-                    )}
+                    {/* WPU GOA Salary */}
+                    <div className={`rounded-md p-2.5 ${enforcement.salaryCapped || enforcement.salaryBelowMin ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800' : 'bg-muted/30'}`}>
+                      <div className="flex items-center gap-1 mb-1 flex-wrap">
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-medium">WPU GOA Salary</p>
+                        {enforcement.salaryCapped && <Badge variant="secondary" className="no-default-hover-elevate no-default-active-elevate text-[8px] px-1 py-0 bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400" data-testid="badge-salary-capped">{settings.enforcementMode === 'hard' ? 'CAP' : '!'}</Badge>}
+                        {enforcement.salaryBelowMin && <Badge variant="secondary" className="no-default-hover-elevate no-default-active-elevate text-[8px] px-1 py-0 bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400" data-testid="badge-salary-below-min">LOW</Badge>}
+                      </div>
+                      <p className="text-base font-bold tabular-nums" data-testid="text-wpu-salary">
+                        {formatCurrencyINR(salaryCardView === 'monthly' ? activeWpu.totalSalaryMonthly : activeWpu.totalSalaryAnnual)}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {salaryCardView === 'monthly' ? `${formatCurrencyINR(activeWpu.totalSalaryAnnual)}/yr` : `${formatCurrencyINR(activeWpu.totalSalaryMonthly)}/mo`}
+                      </p>
+                      {settings.wpuBasePay === '8th' && <p className="text-[9px] text-muted-foreground mt-0.5">On 8th CPC base</p>}
+                    </div>
+                    {/* WPU GOA CTC */}
+                    <div className={`rounded-md border p-2.5 ${enforcement.ctcCapped ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-primary/5 dark:bg-primary/10 border-primary/15'}`}>
+                      <div className="flex items-center gap-1 mb-1">
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-medium">WPU GOA CTC</p>
+                        {enforcement.ctcCapped && <Badge variant="secondary" className="no-default-hover-elevate no-default-active-elevate text-[8px] px-1 py-0 bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400" data-testid="badge-ctc-capped">{settings.enforcementMode === 'hard' ? 'CAP' : '!'}</Badge>}
+                      </div>
+                      <p className="text-base font-bold tabular-nums" data-testid="text-wpu-total">
+                        {formatCurrencyINR(salaryCardView === 'monthly' ? activeWpu.totalCTCMonthly : activeWpu.totalCTCAnnual)}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {salaryCardView === 'monthly' ? `${formatCurrencyINR(activeWpu.totalCTCAnnual)}/yr` : `${formatCurrencyINR(activeWpu.totalCTCMonthly)}/mo`}
+                      </p>
+                      {settings.wpuBasePay === '8th' && <p className="text-[9px] text-muted-foreground mt-0.5">On 8th CPC base</p>}
+                    </div>
+                  </div>
+                )}
+
+                {/* Both WPU bases layout */}
+                {settings.wpuBasePay === 'both' && (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded-md bg-muted/30 p-2.5">
+                        <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-widest font-medium">UGC 7th Pay</p>
+                        <p className="text-base font-bold tabular-nums" data-testid="text-ugc-total">
+                          {formatCurrencyINR(salaryCardView === 'monthly' ? comparison.ugc.totalMonthly : comparison.ugc.totalAnnual)}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          {salaryCardView === 'monthly' ? `${formatCurrencyINR(comparison.ugc.totalAnnual)}/yr` : `${formatCurrencyINR(comparison.ugc.totalMonthly)}/mo`}
+                        </p>
+                      </div>
+                      <div className="rounded-md bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 p-2.5">
+                        <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-widest font-medium">8th Pay (Proposed)</p>
+                        <p className="text-base font-bold tabular-nums text-purple-700 dark:text-purple-300">
+                          {formatCurrencyINR(salaryCardView === 'monthly' ? eighthCpc.totalMonthly : eighthCpc.totalAnnual)}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          {salaryCardView === 'monthly' ? `${formatCurrencyINR(eighthCpc.totalAnnual)}/yr` : `${formatCurrencyINR(eighthCpc.totalMonthly)}/mo`}
+                        </p>
+                        <p className="text-[10px] text-purple-600 dark:text-purple-400 mt-0.5">FF×{settings.eighthCpcFitmentFactor} · +{eighthCpc.incrementOverSeventhPercent.toFixed(1)}%</p>
+                      </div>
+                    </div>
+                    <div className="rounded-md bg-muted/10 border border-muted/50 p-2.5 space-y-2">
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-medium">WPU GOA</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <div className="rounded-md bg-muted/30 p-2">
+                          <p className="text-[9px] text-muted-foreground mb-0.5 font-medium">Salary (7th base)</p>
+                          <p className="text-sm font-bold tabular-nums" data-testid="text-wpu-salary">
+                            {formatCurrencyINR(salaryCardView === 'monthly' ? comparison.wpu.totalSalaryMonthly : comparison.wpu.totalSalaryAnnual)}
+                          </p>
+                          <p className="text-[9px] text-muted-foreground mt-0.5">
+                            {salaryCardView === 'monthly' ? `${formatCurrencyINR(comparison.wpu.totalSalaryAnnual)}/yr` : `${formatCurrencyINR(comparison.wpu.totalSalaryMonthly)}/mo`}
+                          </p>
+                        </div>
+                        <div className="rounded-md bg-primary/5 border border-primary/15 p-2">
+                          <p className="text-[9px] text-muted-foreground mb-0.5 font-medium">CTC (7th base)</p>
+                          <p className="text-sm font-bold tabular-nums" data-testid="text-wpu-total">
+                            {formatCurrencyINR(salaryCardView === 'monthly' ? comparison.wpu.totalCTCMonthly : comparison.wpu.totalCTCAnnual)}
+                          </p>
+                          <p className="text-[9px] text-muted-foreground mt-0.5">
+                            {salaryCardView === 'monthly' ? `${formatCurrencyINR(comparison.wpu.totalCTCAnnual)}/yr` : `${formatCurrencyINR(comparison.wpu.totalCTCMonthly)}/mo`}
+                          </p>
+                        </div>
+                        {wpuOn8th && (<>
+                          <div className="rounded-md bg-muted/30 p-2">
+                            <p className="text-[9px] text-muted-foreground mb-0.5 font-medium">Salary (8th base)</p>
+                            <p className="text-sm font-bold tabular-nums">
+                              {formatCurrencyINR(salaryCardView === 'monthly' ? wpuOn8th.totalSalaryMonthly : wpuOn8th.totalSalaryAnnual)}
+                            </p>
+                            <p className="text-[9px] text-muted-foreground mt-0.5">
+                              {salaryCardView === 'monthly' ? `${formatCurrencyINR(wpuOn8th.totalSalaryAnnual)}/yr` : `${formatCurrencyINR(wpuOn8th.totalSalaryMonthly)}/mo`}
+                            </p>
+                          </div>
+                          <div className="rounded-md bg-primary/5 border border-primary/15 p-2">
+                            <p className="text-[9px] text-muted-foreground mb-0.5 font-medium">CTC (8th base)</p>
+                            <p className="text-sm font-bold tabular-nums">
+                              {formatCurrencyINR(salaryCardView === 'monthly' ? wpuOn8th.totalCTCMonthly : wpuOn8th.totalCTCAnnual)}
+                            </p>
+                            <p className="text-[9px] text-muted-foreground mt-0.5">
+                              {salaryCardView === 'monthly' ? `${formatCurrencyINR(wpuOn8th.totalCTCAnnual)}/yr` : `${formatCurrencyINR(wpuOn8th.totalCTCMonthly)}/mo`}
+                            </p>
+                          </div>
+                        </>)}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* WPU Base quick toggle */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wide shrink-0">WPU Base:</span>
+                  <div className="flex items-center gap-0.5 rounded-md bg-muted/30 p-0.5">
+                    {(['7th', '8th', 'both'] as const).map(opt => (
+                      <Button key={opt} variant="ghost" size="sm"
+                        className={`toggle-elevate text-xs ${settings.wpuBasePay === opt ? 'toggle-elevated' : ''}`}
+                        onClick={() => updateSettings({ wpuBasePay: opt })}>
+                        {opt === 'both' ? 'Both' : `${opt} CPC`}
+                      </Button>
+                    ))}
                   </div>
                 </div>
 
+                {/* Premium over UGC 7th Pay */}
                 <div className="flex items-center justify-between gap-3 rounded-md bg-muted/20 p-3">
                   <div>
-                    <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-medium">Premium over UGC</p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-medium">Premium over UGC 7th Pay</p>
                     <p className="text-sm font-semibold tabular-nums mt-0.5" data-testid="text-premium-amount">
-                      {comparison.premiumAmountMonthly >= 0 ? '+' : ''}{formatCurrencyINR(comparison.premiumAmountMonthly)}/mo
+                      {comparison.premiumAmountMonthly >= 0 ? '+' : ''}{formatCurrencyINR(salaryCardView === 'monthly' ? comparison.premiumAmountMonthly : comparison.premiumAmountAnnual)}{salaryCardView === 'monthly' ? '/mo' : '/yr'}
                     </p>
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -739,63 +878,6 @@ export default function CalculatorPage() {
               </CardContent>
             </Card>
 
-            {/* 8th CPC Projected Salary */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <IndianRupee className="h-4 w-4 text-muted-foreground" />
-                  8th Pay Commission – Projected Salary
-                  <Badge variant="secondary" className="no-default-hover-elevate no-default-active-elevate text-[10px] ml-auto">
-                    FF × {settings.eighthCpcFitmentFactor}
-                  </Badge>
-                </CardTitle>
-                <CardDescription className="text-xs">
-                  Effective Jan 1, 2026 (notional) · DA resets to {settings.eighthCpcDaPercent}% · Configure in Settings
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="rounded-md bg-muted/30 p-3">
-                    <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-widest font-medium">8th CPC Basic</p>
-                    <p className="text-lg font-bold tabular-nums">{formatCurrencyINR(eighthCpc.basic)}</p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">vs 7th: {formatCurrencyINR(comparison.ugc.basic)}</p>
-                  </div>
-                  <div className="rounded-md bg-muted/30 p-3">
-                    <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-widest font-medium">8th CPC Monthly</p>
-                    <p className="text-lg font-bold tabular-nums">{formatCurrencyINR(eighthCpc.totalMonthly)}</p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">{formatCurrencyINR(eighthCpc.totalAnnual)}/yr</p>
-                  </div>
-                  <div className="rounded-md bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 p-3">
-                    <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-widest font-medium">Uplift vs 7th CPC</p>
-                    <p className="text-lg font-bold tabular-nums text-purple-700 dark:text-purple-300">
-                      +{eighthCpc.incrementOverSeventhPercent.toFixed(1)}%
-                    </p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                      +{formatCurrencyINR(eighthCpc.totalMonthly - comparison.ugc.totalMonthly)}/mo
-                    </p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                  <div className="rounded-md bg-muted/20 p-2">
-                    <p className="text-muted-foreground">Basic Pay</p>
-                    <p className="font-medium tabular-nums">{formatCurrencyINR(eighthCpc.basic)}</p>
-                  </div>
-                  <div className="rounded-md bg-muted/20 p-2">
-                    <p className="text-muted-foreground">DA ({settings.eighthCpcDaPercent}%)</p>
-                    <p className="font-medium tabular-nums">{formatCurrencyINR(eighthCpc.da)}</p>
-                  </div>
-                  <div className="rounded-md bg-muted/20 p-2">
-                    <p className="text-muted-foreground">HRA</p>
-                    <p className="font-medium tabular-nums">{formatCurrencyINR(eighthCpc.hra)}</p>
-                  </div>
-                  <div className="rounded-md bg-muted/20 p-2">
-                    <p className="text-muted-foreground">TA</p>
-                    <p className="font-medium tabular-nums">{formatCurrencyINR(eighthCpc.ta)}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
             {/* Detailed Breakdown */}
             <Card data-tour-id="tour-breakdown">
               <CardHeader className="pb-3 space-y-3">
@@ -806,54 +888,108 @@ export default function CalculatorPage() {
                     <Button variant="ghost" size="sm" className={`toggle-elevate ${breakdownView === 'annual' ? 'toggle-elevated' : ''}`} onClick={() => setBreakdownView('annual')} data-testid="button-breakdown-annual">Annual</Button>
                   </div>
                 </div>
-                <div className="flex items-center gap-0.5 rounded-md bg-muted/30 p-0.5">
-                  <Button variant="ghost" size="sm" className={`toggle-elevate ${breakdownTab === 'combined' ? 'toggle-elevated' : ''}`} onClick={() => setBreakdownTab('combined')} data-testid="button-breakdown-combined">Comparison</Button>
-                  <Button variant="ghost" size="sm" className={`toggle-elevate ${breakdownTab === 'ugc' ? 'toggle-elevated' : ''}`} onClick={() => setBreakdownTab('ugc')} data-testid="button-breakdown-ugc">UGC Only</Button>
-                  <Button variant="ghost" size="sm" className={`toggle-elevate ${breakdownTab === 'wpu' ? 'toggle-elevated' : ''}`} onClick={() => setBreakdownTab('wpu')} data-testid="button-breakdown-wpu">WPU GOA</Button>
+                <div className="flex items-center gap-0.5 rounded-md bg-muted/30 p-0.5 overflow-x-auto">
+                  <Button variant="ghost" size="sm" className={`toggle-elevate shrink-0 ${breakdownTab === 'comparison' ? 'toggle-elevated' : ''}`} onClick={() => setBreakdownTab('comparison')} data-testid="button-breakdown-combined">Comparison</Button>
+                  <Button variant="ghost" size="sm" className={`toggle-elevate shrink-0 ${breakdownTab === 'ugc7' ? 'toggle-elevated' : ''}`} onClick={() => setBreakdownTab('ugc7')} data-testid="button-breakdown-ugc">UGC 7th Pay</Button>
+                  <Button variant="ghost" size="sm" className={`toggle-elevate shrink-0 ${breakdownTab === 'cpc8' ? 'toggle-elevated' : ''}`} onClick={() => setBreakdownTab('cpc8')} data-testid="button-breakdown-cpc8">8th Pay</Button>
+                  <Button variant="ghost" size="sm" className={`toggle-elevate shrink-0 ${breakdownTab === 'wpu' ? 'toggle-elevated' : ''}`} onClick={() => setBreakdownTab('wpu')} data-testid="button-breakdown-wpu">WPU/GOA</Button>
                 </div>
               </CardHeader>
               <CardContent>
-                {breakdownTab === 'combined' && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <span className="text-xs font-semibold text-muted-foreground">Component</span>
-                      <div className="flex items-center gap-4">
-                        <span className="text-xs font-semibold text-muted-foreground text-right min-w-[100px]">UGC</span>
-                        <span className="text-xs font-semibold text-muted-foreground text-right min-w-[100px]">WPU GOA</span>
+                {/* ── COMPARISON TAB ── */}
+                {breakdownTab === 'comparison' && (() => {
+                  const m = breakdownView === 'annual' ? 12 : 1;
+                  const wpuForComp = settings.wpuBasePay === '8th' && wpuOn8th ? wpuOn8th : comparison.wpu;
+                  const allCols: CompareColId[] = settings.wpuBasePay === 'both'
+                    ? ['ugc7', 'cpc8', 'wpu_sal', 'wpu_ctc', 'wpu8_sal', 'wpu8_ctc']
+                    : ['ugc7', 'cpc8', 'wpu_sal', 'wpu_ctc'];
+                  const colLabels: Record<CompareColId, string> = {
+                    ugc7: 'UGC 7th', cpc8: '8th Pay',
+                    wpu_sal: settings.wpuBasePay === 'both' ? 'WPU Sal (7th)' : 'WPU Salary',
+                    wpu_ctc: settings.wpuBasePay === 'both' ? 'WPU CTC (7th)' : 'WPU CTC',
+                    wpu8_sal: 'WPU Sal (8th)', wpu8_ctc: 'WPU CTC (8th)',
+                  };
+                  const visibleCols: CompareColId[] = compareMode === 'all'
+                    ? allCols
+                    : allCols.filter(col => selectedCompare[col]);
+                  const wpu7 = comparison.wpu;
+                  const wpu8 = wpuOn8th;
+                  const getVals = (
+                    ugc7v: number, cpc8v: number, wpuSalV: number,
+                    wpuCtcV: number, wpu8SalV: number, wpu8CtcV: number
+                  ): Partial<Record<CompareColId, number>> => ({
+                    ugc7: ugc7v, cpc8: cpc8v, wpu_sal: wpuSalV, wpu_ctc: wpuCtcV,
+                    wpu8_sal: wpu8SalV, wpu8_ctc: wpu8CtcV,
+                  });
+                  const hasAnySpecial = comparison.ugc.specialAllowance > 0 || wpuForComp.specialAllowance > 0 || eighthCpc.specialAllowance > 0;
+                  const hasWpuBonus = wpuForComp.multiplierBonus > 0 || (wpu8?.multiplierBonus ?? 0) > 0;
+                  const hasWpuPremium = wpuForComp.premiumMonthly > 0 || (wpu8?.premiumMonthly ?? 0) > 0;
+                  const hasWpuBenefits = wpu7.benefits.totalMonthly > 0;
+                  return (
+                    <div className="space-y-3">
+                      {/* Compare All / Compare Selected controls */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-0.5 rounded-md bg-muted/30 p-0.5">
+                          <Button variant="ghost" size="sm" className={`toggle-elevate ${compareMode === 'all' ? 'toggle-elevated' : ''}`} onClick={() => setCompareMode('all')}>Compare All</Button>
+                          <Button variant="ghost" size="sm" className={`toggle-elevate ${compareMode === 'selected' ? 'toggle-elevated' : ''}`} onClick={() => setCompareMode('selected')}>Selected</Button>
+                        </div>
+                        {compareMode === 'selected' && (
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {allCols.map(col => (
+                              <Button key={col} variant="ghost" size="sm"
+                                className={`toggle-elevate text-xs ${selectedCompare[col] ? 'toggle-elevated' : ''}`}
+                                onClick={() => setSelectedCompare(prev => {
+                                  const activeCount = Object.values(prev).filter(Boolean).length;
+                                  if (prev[col] && activeCount <= 1) return prev;
+                                  return { ...prev, [col]: !prev[col] };
+                                })}>
+                                {colLabels[col]}
+                              </Button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {/* Column headers + rows */}
+                      <div className="overflow-x-auto -mx-1 px-1">
+                        <div className="space-y-2" style={{ minWidth: `${140 + visibleCols.length * 84}px` }}>
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-xs font-semibold text-muted-foreground">Component</span>
+                            <div className="flex items-center gap-2">
+                              {visibleCols.map(col => (
+                                <span key={col} className={`text-[10px] font-semibold text-right min-w-[80px] ${col === 'cpc8' ? 'text-purple-700 dark:text-purple-300' : 'text-muted-foreground'}`}>
+                                  {colLabels[col]}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                          <MultiColRow label="Basic Pay" multiplier={m} visibleCols={visibleCols} values={getVals(comparison.ugc.basic, eighthCpc.basic, wpuForComp.basic, wpuForComp.basic, wpu8?.basic??0, wpu8?.basic??0)} />
+                          <MultiColRow label="DA" multiplier={m} visibleCols={visibleCols} values={getVals(comparison.ugc.da, eighthCpc.da, wpuForComp.da, wpuForComp.da, wpu8?.da??0, wpu8?.da??0)} />
+                          <MultiColRow label="HRA" multiplier={m} visibleCols={visibleCols} values={getVals(comparison.ugc.hra, eighthCpc.hra, wpuForComp.hra, wpuForComp.hra, wpu8?.hra??0, wpu8?.hra??0)} />
+                          <MultiColRow label="Transport Allowance" multiplier={m} visibleCols={visibleCols} values={getVals(comparison.ugc.ta, eighthCpc.ta, wpuForComp.ta, wpuForComp.ta, wpu8?.ta??0, wpu8?.ta??0)} />
+                          {hasAnySpecial && <MultiColRow label="Special Allowance" multiplier={m} visibleCols={visibleCols} values={getVals(comparison.ugc.specialAllowance, eighthCpc.specialAllowance, wpuForComp.specialAllowance, wpuForComp.specialAllowance, wpu8?.specialAllowance??0, wpu8?.specialAllowance??0)} />}
+                          {hasWpuBonus && <MultiColRow label="Multiplier Bonus" multiplier={m} visibleCols={visibleCols} values={getVals(0, 0, wpuForComp.multiplierBonus, wpuForComp.multiplierBonus, wpu8?.multiplierBonus??0, wpu8?.multiplierBonus??0)} />}
+                          {hasWpuPremium && <MultiColRow label="Premium" multiplier={m} visibleCols={visibleCols} values={getVals(0, 0, wpuForComp.premiumMonthly, wpuForComp.premiumMonthly, wpu8?.premiumMonthly??0, wpu8?.premiumMonthly??0)} />}
+                          <Separator className="my-1" />
+                          <MultiColRow label="Salary Subtotal" bold multiplier={m} visibleCols={visibleCols} values={getVals(comparison.ugc.totalMonthly, eighthCpc.totalMonthly, wpuForComp.totalSalaryMonthly, wpuForComp.totalSalaryMonthly, wpu8?.totalSalaryMonthly??0, wpu8?.totalSalaryMonthly??0)} />
+                          {hasWpuBenefits && (<>
+                            <p className="text-xs text-muted-foreground pt-1">Benefits (WPU only)</p>
+                            <MultiColRow label="Housing" sub multiplier={m} visibleCols={visibleCols} values={getVals(0, 0, 0, wpu7.benefits.housing, 0, wpu8?.benefits.housing??0)} />
+                            <MultiColRow label="Professional Dev" sub multiplier={m} visibleCols={visibleCols} values={getVals(0, 0, 0, wpu7.benefits.professionalDev, 0, wpu8?.benefits.professionalDev??0)} />
+                            <MultiColRow label="PPF" sub multiplier={m} visibleCols={visibleCols} values={getVals(0, 0, 0, wpu7.benefits.ppfAmount, 0, wpu8?.benefits.ppfAmount??0)} />
+                            <MultiColRow label="Gratuity" sub multiplier={m} visibleCols={visibleCols} values={getVals(0, 0, 0, wpu7.benefits.gratuityAmount, 0, wpu8?.benefits.gratuityAmount??0)} />
+                            <MultiColRow label="Health Insurance" sub multiplier={m} visibleCols={visibleCols} values={getVals(0, 0, 0, wpu7.benefits.healthInsurance, 0, wpu8?.benefits.healthInsurance??0)} />
+                            <MultiColRow label="Benefits Total" bold multiplier={m} visibleCols={visibleCols} values={getVals(0, 0, 0, wpu7.benefits.totalMonthly, 0, wpu8?.benefits.totalMonthly??0)} />
+                          </>)}
+                          <Separator className="my-1" />
+                          <MultiColRow label="Total CTC" bold primary multiplier={m} visibleCols={visibleCols} values={getVals(comparison.ugc.totalMonthly, eighthCpc.totalMonthly, wpuForComp.totalSalaryMonthly, wpuForComp.totalCTCMonthly, wpu8?.totalSalaryMonthly??0, wpu8?.totalCTCMonthly??0)} />
+                        </div>
                       </div>
                     </div>
-                    <BreakdownRow label="Basic Pay" ugc={comparison.ugc.basic} wpu={comparison.wpu.basic} multiplier={breakdownView === 'annual' ? 12 : 1} />
-                    <BreakdownRow label={`DA (${daPercent}%)`} ugc={comparison.ugc.da} wpu={comparison.wpu.da} multiplier={breakdownView === 'annual' ? 12 : 1} />
-                    <BreakdownRow label={`HRA ${comparison.wpu.hraMode === 'none' ? '(None)' : comparison.wpu.hraMode === 'lumpsum' ? '(Lump Sum)' : `(${HRA_RATES[cityType].rate}%)`}`} ugc={comparison.ugc.hra} wpu={comparison.wpu.hra} multiplier={breakdownView === 'annual' ? 12 : 1} />
-                    <BreakdownRow label="Transport Allowance" ugc={comparison.ugc.ta} wpu={comparison.wpu.ta} multiplier={breakdownView === 'annual' ? 12 : 1} />
-                    {(comparison.ugc.specialAllowance > 0 || comparison.wpu.specialAllowance > 0) && (
-                      <BreakdownRow label="Special Allowance" ugc={comparison.ugc.specialAllowance} wpu={comparison.wpu.specialAllowance} multiplier={breakdownView === 'annual' ? 12 : 1} />
-                    )}
-                    {comparison.wpu.multiplierBonus > 0 && (
-                      <BreakdownRow label="Multiplier Bonus" ugc={0} wpu={comparison.wpu.multiplierBonus} highlight multiplier={breakdownView === 'annual' ? 12 : 1} />
-                    )}
-                    {comparison.wpu.premiumMonthly > 0 && (
-                      <BreakdownRow label="Premium" ugc={0} wpu={comparison.wpu.premiumMonthly} highlight multiplier={breakdownView === 'annual' ? 12 : 1} />
-                    )}
-                    <Separator className="my-2" />
-                    <BreakdownRow label="Salary Subtotal" ugc={comparison.ugc.totalMonthly} wpu={comparison.wpu.totalSalaryMonthly} bold multiplier={breakdownView === 'annual' ? 12 : 1} />
-                    {comparison.wpu.benefits.totalMonthly > 0 && (
-                      <>
-                        <div className="pt-1"><p className="text-xs text-muted-foreground mb-1">Benefits (WPU GOA only)</p></div>
-                        <BreakdownRow label="Housing" ugc={0} wpu={comparison.wpu.benefits.housing} sub multiplier={breakdownView === 'annual' ? 12 : 1} />
-                        <BreakdownRow label="Professional Dev" ugc={0} wpu={comparison.wpu.benefits.professionalDev} sub multiplier={breakdownView === 'annual' ? 12 : 1} />
-                        <BreakdownRow label="PPF" ugc={0} wpu={comparison.wpu.benefits.ppfAmount} sub multiplier={breakdownView === 'annual' ? 12 : 1} />
-                        <BreakdownRow label="Gratuity" ugc={0} wpu={comparison.wpu.benefits.gratuityAmount} sub multiplier={breakdownView === 'annual' ? 12 : 1} />
-                        <BreakdownRow label="Health Insurance" ugc={0} wpu={comparison.wpu.benefits.healthInsurance} sub multiplier={breakdownView === 'annual' ? 12 : 1} />
-                        <BreakdownRow label="Benefits Total" ugc={0} wpu={comparison.wpu.benefits.totalMonthly} bold multiplier={breakdownView === 'annual' ? 12 : 1} />
-                      </>
-                    )}
-                    <Separator className="my-2" />
-                    <BreakdownRow label="Total CTC" ugc={comparison.ugc.totalMonthly} wpu={comparison.wpu.totalCTCMonthly} bold primary multiplier={breakdownView === 'annual' ? 12 : 1} />
-                  </div>
-                )}
+                  );
+                })()}
 
-                {breakdownTab === 'ugc' && (
+                {/* ── UGC 7TH PAY TAB ── */}
+                {breakdownTab === 'ugc7' && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2 mb-2">
                       <span className="text-xs font-semibold text-muted-foreground">Component</span>
@@ -867,48 +1003,104 @@ export default function CalculatorPage() {
                       <SingleRow label="Special Allowance" value={comparison.ugc.specialAllowance} multiplier={breakdownView === 'annual' ? 12 : 1} />
                     )}
                     <Separator className="my-2" />
-                    <SingleRow label="Total UGC Salary" value={comparison.ugc.totalMonthly} multiplier={breakdownView === 'annual' ? 12 : 1} bold />
+                    <SingleRow label="Total UGC 7th Pay Salary" value={comparison.ugc.totalMonthly} multiplier={breakdownView === 'annual' ? 12 : 1} bold />
                     <p className="text-xs text-muted-foreground pt-1">{formatCurrencyINR(comparison.ugc.totalAnnual)}/year</p>
                   </div>
                 )}
 
-                {breakdownTab === 'wpu' && (
+                {/* ── 8TH PAY (PROPOSED) TAB ── */}
+                {breakdownTab === 'cpc8' && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2 mb-2">
                       <span className="text-xs font-semibold text-muted-foreground">Component</span>
-                      <span className="text-xs font-semibold text-muted-foreground text-right">Amount</span>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="no-default-hover-elevate no-default-active-elevate text-[10px]">FF×{settings.eighthCpcFitmentFactor}</Badge>
+                        <span className="text-xs font-semibold text-muted-foreground text-right">Amount</span>
+                      </div>
                     </div>
-                    <SingleRow label="Basic Pay" value={comparison.wpu.basic} multiplier={breakdownView === 'annual' ? 12 : 1} />
-                    <SingleRow label={`DA (${daPercent}%)`} value={comparison.wpu.da} multiplier={breakdownView === 'annual' ? 12 : 1} />
-                    <SingleRow label={`HRA ${comparison.wpu.hraMode === 'none' ? '(None)' : comparison.wpu.hraMode === 'lumpsum' ? '(Lump Sum)' : `(${HRA_RATES[cityType].rate}%)`}`} value={comparison.wpu.hra} multiplier={breakdownView === 'annual' ? 12 : 1} />
-                    <SingleRow label="Transport Allowance" value={comparison.wpu.ta} multiplier={breakdownView === 'annual' ? 12 : 1} />
-                    {comparison.wpu.specialAllowance > 0 && (
-                      <SingleRow label="Special Allowance" value={comparison.wpu.specialAllowance} multiplier={breakdownView === 'annual' ? 12 : 1} />
-                    )}
-                    {comparison.wpu.multiplierBonus > 0 && (
-                      <SingleRow label="Multiplier Bonus" value={comparison.wpu.multiplierBonus} multiplier={breakdownView === 'annual' ? 12 : 1} highlight />
-                    )}
-                    {comparison.wpu.premiumMonthly > 0 && (
-                      <SingleRow label="Premium" value={comparison.wpu.premiumMonthly} multiplier={breakdownView === 'annual' ? 12 : 1} highlight />
+                    <SingleRow label="Basic Pay" value={eighthCpc.basic} multiplier={breakdownView === 'annual' ? 12 : 1} />
+                    <SingleRow label={`DA (${settings.eighthCpcDaPercent}%)`} value={eighthCpc.da} multiplier={breakdownView === 'annual' ? 12 : 1} />
+                    <SingleRow label={`HRA ${eighthCpc.hraMode === 'none' ? '(None)' : eighthCpc.hraMode === 'lumpsum' ? '(Lump Sum)' : `(${HRA_RATES[cityType].rate}%)`}`} value={eighthCpc.hra} multiplier={breakdownView === 'annual' ? 12 : 1} />
+                    <SingleRow label="Transport Allowance" value={eighthCpc.ta} multiplier={breakdownView === 'annual' ? 12 : 1} />
+                    {eighthCpc.specialAllowance > 0 && (
+                      <SingleRow label="Special Allowance" value={eighthCpc.specialAllowance} multiplier={breakdownView === 'annual' ? 12 : 1} />
                     )}
                     <Separator className="my-2" />
-                    <SingleRow label="Salary Subtotal" value={comparison.wpu.totalSalaryMonthly} multiplier={breakdownView === 'annual' ? 12 : 1} bold />
-                    {comparison.wpu.benefits.totalMonthly > 0 && (
-                      <>
-                        <div className="pt-1"><p className="text-xs text-muted-foreground mb-1">Benefits</p></div>
-                        <SingleRow label="Housing" value={comparison.wpu.benefits.housing} multiplier={breakdownView === 'annual' ? 12 : 1} sub />
-                        <SingleRow label="Professional Dev" value={comparison.wpu.benefits.professionalDev} multiplier={breakdownView === 'annual' ? 12 : 1} sub />
-                        <SingleRow label="PPF" value={comparison.wpu.benefits.ppfAmount} multiplier={breakdownView === 'annual' ? 12 : 1} sub />
-                        <SingleRow label="Gratuity" value={comparison.wpu.benefits.gratuityAmount} multiplier={breakdownView === 'annual' ? 12 : 1} sub />
-                        <SingleRow label="Health Insurance" value={comparison.wpu.benefits.healthInsurance} multiplier={breakdownView === 'annual' ? 12 : 1} sub />
-                        <SingleRow label="Benefits Total" value={comparison.wpu.benefits.totalMonthly} multiplier={breakdownView === 'annual' ? 12 : 1} bold />
-                      </>
-                    )}
-                    <Separator className="my-2" />
-                    <SingleRow label="Total WPU GOA CTC" value={comparison.wpu.totalCTCMonthly} multiplier={breakdownView === 'annual' ? 12 : 1} bold primary />
-                    <p className="text-xs text-muted-foreground pt-1">{formatCurrencyINR(comparison.wpu.totalCTCAnnual)}/year</p>
+                    <SingleRow label="Total 8th CPC Salary" value={eighthCpc.totalMonthly} multiplier={breakdownView === 'annual' ? 12 : 1} bold />
+                    <div className="flex items-center justify-between pt-1">
+                      <p className="text-xs text-muted-foreground">{formatCurrencyINR(eighthCpc.totalAnnual)}/year</p>
+                      <Badge variant="secondary" className={`no-default-hover-elevate no-default-active-elevate text-xs ${eighthCpc.incrementOverSeventhPercent >= 0 ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'}`}>
+                        +{eighthCpc.incrementOverSeventhPercent.toFixed(1)}% vs 7th CPC
+                      </Badge>
+                    </div>
                   </div>
                 )}
+
+                {/* ── WPU/GOA TAB ── */}
+                {breakdownTab === 'wpu' && (() => {
+                  const m = breakdownView === 'annual' ? 12 : 1;
+                  const wpuD = wpuSubTab === '8th' && wpuOn8th ? wpuOn8th : comparison.wpu;
+                  const ugcForRef = comparison.ugc;
+                  const cpc8ForRef = eighthCpc;
+                  const allWpuCols: CompareColId[] = ['ugc7', 'cpc8', 'wpu_sal', 'wpu_ctc'];
+                  const wpuColLabels: Record<CompareColId, string> = {
+                    ugc7: 'UGC 7th', cpc8: '8th Pay',
+                    wpu_sal: 'WPU Salary', wpu_ctc: 'WPU CTC',
+                    wpu8_sal: '', wpu8_ctc: '',
+                  };
+                  return (
+                    <div className="space-y-3">
+                      {/* Sub-tabs */}
+                      <div className="flex items-center gap-0.5 rounded-md bg-muted/30 p-0.5 w-fit">
+                        <Button variant="ghost" size="sm" className={`toggle-elevate ${wpuSubTab === '7th' ? 'toggle-elevated' : ''}`} onClick={() => setWpuSubTab('7th')}>vs 7th Pay</Button>
+                        <Button variant="ghost" size="sm" className={`toggle-elevate ${wpuSubTab === '8th' ? 'toggle-elevated' : ''}`} onClick={() => setWpuSubTab('8th')}>vs 8th Pay</Button>
+                      </div>
+                      {/* Show prompt if 8th base WPU is not available */}
+                      {wpuSubTab === '8th' && !wpuOn8th && (
+                        <div className="rounded-md bg-muted/30 p-3 text-xs text-muted-foreground">
+                          Enable <span className="font-medium">8th CPC</span> or <span className="font-medium">Both</span> in the WPU Base toggle above to see this comparison.
+                        </div>
+                      )}
+                      {/* 4-column comparison */}
+                      {(wpuSubTab === '7th' || wpuOn8th) && (
+                        <div className="overflow-x-auto -mx-1 px-1">
+                          <div className="space-y-2" style={{ minWidth: `${140 + 4 * 84}px` }}>
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-xs font-semibold text-muted-foreground">Component</span>
+                              <div className="flex items-center gap-2">
+                                {allWpuCols.map(col => (
+                                  <span key={col} className={`text-[10px] font-semibold text-right min-w-[80px] ${col === 'cpc8' ? 'text-purple-700 dark:text-purple-300' : 'text-muted-foreground'}`}>
+                                    {wpuColLabels[col]}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                            <MultiColRow label="Basic Pay" multiplier={m} visibleCols={allWpuCols} values={{ ugc7: ugcForRef.basic, cpc8: cpc8ForRef.basic, wpu_sal: wpuD.basic, wpu_ctc: wpuD.basic }} />
+                            <MultiColRow label="DA" multiplier={m} visibleCols={allWpuCols} values={{ ugc7: ugcForRef.da, cpc8: cpc8ForRef.da, wpu_sal: wpuD.da, wpu_ctc: wpuD.da }} />
+                            <MultiColRow label="HRA" multiplier={m} visibleCols={allWpuCols} values={{ ugc7: ugcForRef.hra, cpc8: cpc8ForRef.hra, wpu_sal: wpuD.hra, wpu_ctc: wpuD.hra }} />
+                            <MultiColRow label="Transport Allowance" multiplier={m} visibleCols={allWpuCols} values={{ ugc7: ugcForRef.ta, cpc8: cpc8ForRef.ta, wpu_sal: wpuD.ta, wpu_ctc: wpuD.ta }} />
+                            {(ugcForRef.specialAllowance > 0 || wpuD.specialAllowance > 0) && <MultiColRow label="Special Allowance" multiplier={m} visibleCols={allWpuCols} values={{ ugc7: ugcForRef.specialAllowance, cpc8: cpc8ForRef.specialAllowance, wpu_sal: wpuD.specialAllowance, wpu_ctc: wpuD.specialAllowance }} />}
+                            {wpuD.multiplierBonus > 0 && <MultiColRow label="Multiplier Bonus" multiplier={m} visibleCols={allWpuCols} values={{ ugc7: 0, cpc8: 0, wpu_sal: wpuD.multiplierBonus, wpu_ctc: wpuD.multiplierBonus }} />}
+                            {wpuD.premiumMonthly > 0 && <MultiColRow label="Premium" multiplier={m} visibleCols={allWpuCols} values={{ ugc7: 0, cpc8: 0, wpu_sal: wpuD.premiumMonthly, wpu_ctc: wpuD.premiumMonthly }} />}
+                            <Separator className="my-1" />
+                            <MultiColRow label="Salary Subtotal" bold multiplier={m} visibleCols={allWpuCols} values={{ ugc7: ugcForRef.totalMonthly, cpc8: cpc8ForRef.totalMonthly, wpu_sal: wpuD.totalSalaryMonthly, wpu_ctc: wpuD.totalSalaryMonthly }} />
+                            {wpuD.benefits.totalMonthly > 0 && (<>
+                              <p className="text-xs text-muted-foreground pt-1">Benefits (WPU only)</p>
+                              <MultiColRow label="Housing" sub multiplier={m} visibleCols={allWpuCols} values={{ ugc7: 0, cpc8: 0, wpu_sal: 0, wpu_ctc: wpuD.benefits.housing }} />
+                              <MultiColRow label="Professional Dev" sub multiplier={m} visibleCols={allWpuCols} values={{ ugc7: 0, cpc8: 0, wpu_sal: 0, wpu_ctc: wpuD.benefits.professionalDev }} />
+                              <MultiColRow label="PPF" sub multiplier={m} visibleCols={allWpuCols} values={{ ugc7: 0, cpc8: 0, wpu_sal: 0, wpu_ctc: wpuD.benefits.ppfAmount }} />
+                              <MultiColRow label="Gratuity" sub multiplier={m} visibleCols={allWpuCols} values={{ ugc7: 0, cpc8: 0, wpu_sal: 0, wpu_ctc: wpuD.benefits.gratuityAmount }} />
+                              <MultiColRow label="Health Insurance" sub multiplier={m} visibleCols={allWpuCols} values={{ ugc7: 0, cpc8: 0, wpu_sal: 0, wpu_ctc: wpuD.benefits.healthInsurance }} />
+                              <MultiColRow label="Benefits Total" bold multiplier={m} visibleCols={allWpuCols} values={{ ugc7: 0, cpc8: 0, wpu_sal: 0, wpu_ctc: wpuD.benefits.totalMonthly }} />
+                            </>)}
+                            <Separator className="my-1" />
+                            <MultiColRow label="Total CTC" bold primary multiplier={m} visibleCols={allWpuCols} values={{ ugc7: ugcForRef.totalMonthly, cpc8: cpc8ForRef.totalMonthly, wpu_sal: wpuD.totalSalaryMonthly, wpu_ctc: wpuD.totalCTCMonthly }} />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
 
@@ -1002,6 +1194,51 @@ export default function CalculatorPage() {
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+type CompareColId = 'ugc7' | 'cpc8' | 'wpu_sal' | 'wpu_ctc' | 'wpu8_sal' | 'wpu8_ctc';
+
+function MultiColRow({
+  label,
+  values,
+  visibleCols,
+  bold = false,
+  sub = false,
+  primary = false,
+  multiplier = 1,
+}: {
+  label: string;
+  values: Partial<Record<CompareColId, number>>;
+  visibleCols: CompareColId[];
+  bold?: boolean;
+  sub?: boolean;
+  primary?: boolean;
+  multiplier?: number;
+}) {
+  return (
+    <div className={`flex items-center justify-between gap-1 ${sub ? 'pl-3' : ''}`}>
+      <span className={`text-sm min-w-0 ${bold ? 'font-semibold' : ''} ${sub ? 'text-xs text-muted-foreground' : ''}`}>
+        {label}
+      </span>
+      <div className="flex items-center gap-2 shrink-0">
+        {visibleCols.map(col => {
+          const val = (values[col] ?? 0) * multiplier;
+          return (
+            <span
+              key={col}
+              className={`text-sm text-right tabular-nums min-w-[80px]
+                ${bold ? 'font-semibold' : ''}
+                ${primary ? 'font-bold' : ''}
+                ${col === 'cpc8' ? 'text-purple-700 dark:text-purple-300' : ''}
+                ${val === 0 && !bold ? 'text-muted-foreground opacity-50' : ''}`}
+            >
+              {val === 0 && !bold ? '—' : formatCurrencyINR(val)}
+            </span>
+          );
+        })}
+      </div>
     </div>
   );
 }

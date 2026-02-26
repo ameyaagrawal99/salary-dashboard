@@ -436,6 +436,36 @@ export function SettingsDialog() {
 
           <Separator />
 
+          <div>
+            <div className="flex items-center gap-2 mb-2.5">
+              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">WPU Multiplier Base Pay</Label>
+              <InfoTooltip
+                shortText="Base pay for WPU calculation"
+                title="WPU Calculation Base"
+                detail={`Controls which pay scale the WPU multiplier and premium are applied to.\n\n7th CPC Basic: Current standard behaviour — multiplier applied to 7th CPC basic pay.\n\n8th CPC Basic: Multiplier applied to projected 8th CPC basic pay (fitment factor × 7th CPC basic).\n\nBoth: Show both calculations side by side for direct comparison.`}
+              />
+            </div>
+            <div className="flex items-center gap-0.5 rounded-md bg-muted/30 p-0.5">
+              {(['7th', '8th', 'both'] as const).map(opt => (
+                <Button
+                  key={opt}
+                  variant="ghost"
+                  size="sm"
+                  className={`toggle-elevate flex-1 ${settings.wpuBasePay === opt ? 'toggle-elevated' : ''}`}
+                  onClick={() => updateSettings({ wpuBasePay: opt })}
+                  data-testid={`button-wpu-base-${opt}`}
+                >
+                  {opt === '7th' ? '7th CPC' : opt === '8th' ? '8th CPC' : 'Both'}
+                </Button>
+              ))}
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              "Both" shows WPU on 7th CPC and 8th CPC base simultaneously in the comparison view.
+            </p>
+          </div>
+
+          <Separator />
+
           <Button variant="outline" onClick={resetToDefaults} className="w-full" data-testid="button-reset-defaults">
             <RotateCcw className="h-4 w-4 mr-2" />
             Reset to Defaults
