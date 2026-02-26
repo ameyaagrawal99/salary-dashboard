@@ -50,6 +50,7 @@ export interface GlobalSettings {
   hraConfig: HraConfig;
   eighthCpcFitmentFactor: number;
   eighthCpcDaPercent: number;
+  wpuBasePay: '7th' | '8th' | 'both';
 }
 
 const DEFAULT_GLOBAL_BENEFITS: Benefits = {
@@ -69,7 +70,7 @@ const DEFAULT_LEVEL_BENEFITS: LevelBenefits = {
   "15": { housing: 54167, professionalDev: 8333, ppfPercent: 12, gratuityPercent: 4.81, healthInsurance: 1250 },
 };
 
-const SETTINGS_VERSION = 6;
+const SETTINGS_VERSION = 7;
 
 const DEFAULT_HRA_CONFIG: HraConfig = {
   providingHousing: true,
@@ -105,6 +106,7 @@ const DEFAULT_SETTINGS: GlobalSettings = {
   hraConfig: DEFAULT_HRA_CONFIG,
   eighthCpcFitmentFactor: 2.28,
   eighthCpcDaPercent: 0,
+  wpuBasePay: '7th',
 };
 
 interface SettingsContextType {

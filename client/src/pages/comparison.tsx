@@ -32,6 +32,10 @@ export default function ComparisonPage() {
     () => new Set(FACULTY_POSITIONS.filter(p => !p.title.toLowerCase().includes('principal')).map(p => p.id))
   );
   const [filterOpen, setFilterOpen] = useState(false);
+  const [seriesMode, setSeriesMode] = useState<'all' | 'selected'>('all');
+  const [selectedSeries, setSelectedSeries] = useState<Set<string>>(
+    () => new Set(['UGC Annual', '8th CPC Annual', 'WPU Salary', 'WPU Benefits'])
+  );
 
   const togglePosition = (id: number) => {
     setVisiblePositions(prev => {
@@ -133,6 +137,35 @@ export default function ComparisonPage() {
           )}
         </div>
 
+        {/* Series filter */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-muted-foreground">Salary series:</span>
+          <div className="flex items-center gap-0.5 rounded-md bg-muted/30 p-0.5">
+            <Button variant="ghost" size="sm" className={`toggle-elevate ${seriesMode === 'all' ? 'toggle-elevated' : ''}`} onClick={() => setSeriesMode('all')}>All</Button>
+            <Button variant="ghost" size="sm" className={`toggle-elevate ${seriesMode === 'selected' ? 'toggle-elevated' : ''}`} onClick={() => setSeriesMode('selected')}>Selected</Button>
+          </div>
+          {seriesMode === 'selected' && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {(['UGC Annual', '8th CPC Annual', 'WPU Salary', 'WPU Benefits'] as const).map(s => {
+                const active = selectedSeries.has(s);
+                return (
+                  <Button key={s} variant="ghost" size="sm"
+                    className={`toggle-elevate gap-1.5 ${active ? 'toggle-elevated' : ''}`}
+                    onClick={() => setSelectedSeries(prev => {
+                      const next = new Set(prev);
+                      if (next.has(s)) { if (next.size > 1) next.delete(s); }
+                      else next.add(s);
+                      return next;
+                    })}>
+                    {active ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                    {s}
+                  </Button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {filterOpen && (
           <div className="rounded-md bg-muted/40 p-4 space-y-3">
             <div className="flex flex-wrap gap-2">
@@ -185,10 +218,10 @@ export default function ComparisonPage() {
                     <YAxis tickFormatter={(v: number) => formatCurrency(v, true)} tick={{ fontSize: 11 }} />
                     <Tooltip formatter={currencyTooltipFormatter} />
                     <Legend />
-                    <Bar dataKey="UGC Annual" fill={INDIGO} radius={[2, 2, 0, 0]} />
-                    <Bar dataKey="8th CPC Annual" fill={PURPLE} radius={[2, 2, 0, 0]} />
-                    <Bar dataKey="WPU Salary" stackId="wpu" fill={GREEN} />
-                    <Bar dataKey="WPU Benefits" stackId="wpu" fill={AMBER} radius={[2, 2, 0, 0]} />
+                    {(seriesMode === 'all' || selectedSeries.has('UGC Annual')) && <Bar dataKey="UGC Annual" fill={INDIGO} radius={[2, 2, 0, 0]} />}
+                    {(seriesMode === 'all' || selectedSeries.has('8th CPC Annual')) && <Bar dataKey="8th CPC Annual" fill={PURPLE} radius={[2, 2, 0, 0]} />}
+                    {(seriesMode === 'all' || selectedSeries.has('WPU Salary')) && <Bar dataKey="WPU Salary" stackId="wpu" fill={GREEN} />}
+                    {(seriesMode === 'all' || selectedSeries.has('WPU Benefits')) && <Bar dataKey="WPU Benefits" stackId="wpu" fill={AMBER} radius={[2, 2, 0, 0]} />}
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -250,6 +283,7 @@ export default function ComparisonPage() {
                       />
                     </div>
                   </TableHead>
+                  {(seriesMode === 'all' || selectedSeries.has('8th CPC Annual')) && (
                   <TableHead className="text-right">
                     <div className="flex items-center justify-end gap-1">
                       8th CPC Annual
@@ -260,6 +294,7 @@ export default function ComparisonPage() {
                       />
                     </div>
                   </TableHead>
+                  )}
                   <TableHead className="text-right">
                     <div className="flex items-center justify-end gap-1">
                       WPU Salary
@@ -313,9 +348,11 @@ export default function ComparisonPage() {
                       <TableCell className="text-right tabular-nums">
                         {formatCurrency(d.result.ugc.totalAnnual, true)}
                       </TableCell>
+                      {(seriesMode === 'all' || selectedSeries.has('8th CPC Annual')) && (
                       <TableCell className="text-right tabular-nums text-purple-700 dark:text-purple-300 font-medium">
                         {formatCurrency(d.eighthCpc.totalAnnual, true)}
                       </TableCell>
+                      )}
                       <TableCell className="text-right tabular-nums">
                         <span className={d.result.wpu.enforcement.salaryCapped || d.result.wpu.enforcement.salaryBelowMin ? 'text-red-600 dark:text-red-400' : ''}>
                           {formatCurrency(d.result.wpu.totalSalaryAnnual, true)}
@@ -382,8 +419,10 @@ export default function ComparisonPage() {
                       <span className="text-right tabular-nums">{d.position.level} / {d.cellIndex + 1}</span>
                       <span className="text-muted-foreground">UGC Annual</span>
                       <span className="text-right tabular-nums">{formatCurrency(d.result.ugc.totalAnnual, true)}</span>
+                      {(seriesMode === 'all' || selectedSeries.has('8th CPC Annual')) && (<>
                       <span className="text-muted-foreground">8th CPC Annual</span>
                       <span className="text-right tabular-nums text-purple-700 dark:text-purple-300 font-medium">{formatCurrency(d.eighthCpc.totalAnnual, true)}</span>
+                      </>)}
                       <span className="text-muted-foreground">WPU Salary</span>
                       <span className={`text-right tabular-nums ${d.result.wpu.enforcement.salaryCapped || d.result.wpu.enforcement.salaryBelowMin ? 'text-red-600 dark:text-red-400' : ''}`}>{formatCurrency(d.result.wpu.totalSalaryAnnual, true)}</span>
                       <span className="text-muted-foreground">WPU CTC</span>
