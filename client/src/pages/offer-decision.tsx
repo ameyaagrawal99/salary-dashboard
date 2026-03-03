@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import {
-  Target, ChevronDown, ChevronUp, AlertTriangle, Info, TrendingUp,
+  Target, ChevronDown, ChevronUp, AlertTriangle, Info, TrendingUp, BarChart2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -14,11 +14,15 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 import { NumericInput } from '@/components/numeric-input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
+} from 'recharts';
 import { useSettings } from '@/lib/settings-context';
-import type { EnforcementMode } from '@/lib/settings-context';
+import type { EnforcementMode, SalaryInputMode, CalculationMode, MitHybridMode } from '@/lib/settings-context';
 import {
   DESIGNATION_SALARY_RANGES,
   PHD_TIER_LABELS,
@@ -44,6 +48,12 @@ function fmt(n: number): string {
 
 function fmtL(n: number): string {
   return `₹${(n / 100000).toFixed(1)}L`;
+}
+
+function pct(current: number, offered: number): string {
+  if (!current || current <= 0) return '—';
+  const delta = ((offered - current) / current) * 100;
+  return `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%`;
 }
 
 const BAND_ROW_BG: Record<string, string> = {
@@ -75,6 +85,7 @@ function BreakdownDisplay({
     { label: 'Basic Pay', monthly: bd.basicMonthly, annual: bd.basicMonthly * 12 },
     { label: `DA (${daPercent}%)`, monthly: bd.daMonthly, annual: bd.daMonthly * 12 },
     ...(bd.hraIncluded ? [{ label: 'HRA', monthly: bd.hraMonthly, annual: bd.hraMonthly * 12 }] : []),
+    { label: 'TA (Travel Allowance)', monthly: bd.taMonthly, annual: bd.taMonthly * 12 },
   ];
 
   return (
@@ -92,7 +103,7 @@ function BreakdownDisplay({
           <span className="text-right">Annual</span>
         </div>
 
-        {/* Basic + DA + HRA rows */}
+        {/* Basic + DA + HRA + TA rows */}
         {rows.map(row => (
           <div key={row.label} className="grid grid-cols-[1fr_auto_auto] gap-x-4 px-3 py-1 border-b border-border/40">
             <span className="text-muted-foreground">{row.label}</span>
@@ -101,9 +112,9 @@ function BreakdownDisplay({
           </div>
         ))}
 
-        {/* Gross total */}
+        {/* Gross total (Basic+DA+HRA — TA listed separately above for transparency) */}
         <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 px-3 py-1.5 font-semibold border-b bg-muted/20">
-          <span>Gross</span>
+          <span>Gross (Basic+DA{bd.hraIncluded ? '+HRA' : ''})</span>
           <span className="text-right">{fmt(Math.round(bd.grossMonthly))}</span>
           <span className="text-right">{fmt(bd.grossAnnual)}</span>
         </div>
@@ -126,7 +137,7 @@ function BreakdownDisplay({
 
         {/* CTC */}
         <div className="grid grid-cols-[1fr_auto] gap-x-4 px-3 py-2 font-bold text-sm bg-muted/30">
-          <span>Total CTC</span>
+          <span>Total CTC (incl. TA)</span>
           <span className="text-right">{fmt(bd.ctcAnnual)}</span>
         </div>
       </div>
@@ -144,32 +155,71 @@ export default function OfferDecisionPage() {
   const [designation, setDesignation] = useState<OfferDesignation>('assistant_professor');
   const [isFresher, setIsFresher] = useState(true);
   const [yearsExperience, setYearsExperience] = useState(0);
-  const [currentBasicMonthly, setCurrentBasicMonthly] = useState(50000);
   const [phdTier, setPhdTier] = useState<PhDTier>('iit_iisc');
   const [additionalQualIds, setAdditionalQualIds] = useState<string[]>([]);
 
-  // Local offer settings (synced from saved defaults on mount)
+  // Current salary tab state
+  const [salaryInputMode, setSalaryInputMode] = useState<SalaryInputMode>(defaults.salaryInputMode);
+  const [currentBasicMonthly, setCurrentBasicMonthly] = useState(50000);
+  const [currentGrossMonthly, setCurrentGrossMonthly] = useState(80000);
+  const [currentCtcAnnual, setCurrentCtcAnnual] = useState(1200000);
+
+  // Offer settings (synced from saved defaults on mount)
   const [incrementPercent, setIncrementPercent] = useState(defaults.incrementPercent);
   const [hikePercent, setHikePercent] = useState(defaults.hikePercent);
   const [hraIncluded, setHraIncluded] = useState(defaults.hraIncluded);
   const [offerEnforcementMode, setOfferEnforcementMode] = useState<EnforcementMode>(
     defaults.offerEnforcementMode,
   );
+  const [calculationMode, setCalculationMode] = useState<CalculationMode>(defaults.calculationMode);
+  const [mitHybridMode, setMitHybridMode] = useState<MitHybridMode>(defaults.mitHybridMode);
 
   // Custom target override
   const [customTargetGross, setCustomTargetGross] = useState(0);
   const [isRefTableOpen, setIsRefTableOpen] = useState(false);
+  const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(true);
 
   // ── Derived ───────────────────────────────────────────────────────────────────
+
+  const activeRange = useMemo(
+    () => DESIGNATION_SALARY_RANGES.find(r => r.designation === designation),
+    [designation],
+  );
+
+  const wpuPayScale = useMemo(
+    () => generateWpuPayScaleTable(settings.daPercentage, hraIncluded, settings.cityType),
+    [settings.daPercentage, hraIncluded, settings.cityType],
+  );
+
+  /** Convert whichever salary tab is active → a single annual gross equivalent */
+  const currentGrossEquivalentAnnual = useMemo(() => {
+    if (isFresher) return 0;
+    switch (salaryInputMode) {
+      case 'basic':
+        return currentBasicMonthly * (1 + settings.daPercentage / 100) * 12;
+      case 'gross':
+        return currentGrossMonthly * 12;
+      case 'ctc': {
+        const perks = activeRange?.additionalPerksAnnual ?? 0;
+        const benefitRatio =
+          (settings.globalBenefits.ppfPercent + settings.globalBenefits.gratuityPercent) / 100
+          / (1 + settings.daPercentage / 100);
+        return Math.max(0, (currentCtcAnnual - perks) / (1 + benefitRatio));
+      }
+    }
+  }, [
+    salaryInputMode, currentBasicMonthly, currentGrossMonthly, currentCtcAnnual,
+    isFresher, settings.daPercentage, settings.globalBenefits, activeRange,
+  ]);
 
   const candidate: CandidateProfile = useMemo(() => ({
     isFresher,
     yearsExperience: isFresher ? 0 : yearsExperience,
-    currentBasicMonthly: isFresher ? 0 : currentBasicMonthly,
+    currentGrossEquivalentAnnual: isFresher ? 0 : currentGrossEquivalentAnnual,
     designation,
     phdTier,
     additionalQualIds,
-  }), [isFresher, yearsExperience, currentBasicMonthly, designation, phdTier, additionalQualIds]);
+  }), [isFresher, yearsExperience, currentGrossEquivalentAnnual, designation, phdTier, additionalQualIds]);
 
   const result = useMemo(() => calculateOfferDecision(
     candidate,
@@ -180,12 +230,11 @@ export default function OfferDecisionPage() {
     settings.cityType,
     settings.globalBenefits.ppfPercent,
     settings.globalBenefits.gratuityPercent,
-  ), [candidate, incrementPercent, hikePercent, settings, hraIncluded]);
-
-  const activeRange = useMemo(
-    () => DESIGNATION_SALARY_RANGES.find(r => r.designation === designation),
-    [designation],
-  );
+    settings.isTPTACity,
+    calculationMode,
+    mitHybridMode,
+    wpuPayScale,
+  ), [candidate, incrementPercent, hikePercent, settings, hraIncluded, calculationMode, mitHybridMode, wpuPayScale]);
 
   const customBreakdown = useMemo((): OfferBreakdown | null => {
     if (!customTargetGross || customTargetGross <= 0) return null;
@@ -193,6 +242,8 @@ export default function OfferDecisionPage() {
       customTargetGross, settings.daPercentage, hraIncluded, settings.cityType,
     );
     const grossMonthly = basicMonthly + daMonthly + hraMonthly;
+    const taMonthly = settings.isTPTACity ? 7200 : 3600;
+    const taAnnual = taMonthly * 12;
     const ppfAnnual = Math.round(basicMonthly * 12 * (settings.globalBenefits.ppfPercent / 100));
     const gratuityAnnual = Math.round(
       basicMonthly * 12 * (settings.globalBenefits.gratuityPercent / 100),
@@ -203,11 +254,12 @@ export default function OfferDecisionPage() {
       basicMonthly: Math.round(basicMonthly),
       daMonthly: Math.round(daMonthly),
       hraMonthly: Math.round(hraMonthly),
+      taMonthly,
       grossMonthly: Math.round(grossMonthly),
       ppfAnnual,
       gratuityAnnual,
       perksAnnual,
-      ctcAnnual: customTargetGross + ppfAnnual + gratuityAnnual + perksAnnual,
+      ctcAnnual: customTargetGross + taAnnual + ppfAnnual + gratuityAnnual + perksAnnual,
       hraIncluded,
     };
   }, [customTargetGross, settings, hraIncluded, activeRange]);
@@ -221,11 +273,6 @@ export default function OfferDecisionPage() {
     ));
   }, [customTargetGross, activeRange]);
 
-  const wpuPayScale = useMemo(
-    () => generateWpuPayScaleTable(settings.daPercentage, hraIncluded, settings.cityType),
-    [settings.daPercentage, hraIncluded, settings.cityType],
-  );
-
   const isCustomOverRange = Boolean(
     customTargetGross > 0
     && activeRange
@@ -238,6 +285,60 @@ export default function OfferDecisionPage() {
     && activeRange.minGrossAnnual > 0
     && customTargetGross < activeRange.minGrossAnnual,
   );
+
+  /** "Current" salary breakdown for analytics — back-calculated from gross equivalent */
+  const currentBreakdown = useMemo((): OfferBreakdown | null => {
+    if (isFresher || currentGrossEquivalentAnnual <= 0) return null;
+    const { basicMonthly, daMonthly, hraMonthly } = backCalculateFromGross(
+      currentGrossEquivalentAnnual, settings.daPercentage, hraIncluded, settings.cityType,
+    );
+    const grossMonthly = basicMonthly + daMonthly + hraMonthly;
+    const taMonthly = settings.isTPTACity ? 7200 : 3600;
+    const ppfAnnual = Math.round(basicMonthly * 12 * (settings.globalBenefits.ppfPercent / 100));
+    const gratuityAnnual = Math.round(basicMonthly * 12 * (settings.globalBenefits.gratuityPercent / 100));
+    const perksAnnual = activeRange?.additionalPerksAnnual ?? 0;
+    return {
+      grossAnnual: Math.round(currentGrossEquivalentAnnual),
+      basicMonthly: Math.round(basicMonthly),
+      daMonthly: Math.round(daMonthly),
+      hraMonthly: Math.round(hraMonthly),
+      taMonthly,
+      grossMonthly: Math.round(grossMonthly),
+      ppfAnnual,
+      gratuityAnnual,
+      perksAnnual,
+      ctcAnnual: Math.round(currentGrossEquivalentAnnual) + taMonthly * 12 + ppfAnnual + gratuityAnnual + perksAnnual,
+      hraIncluded,
+    };
+  }, [isFresher, currentGrossEquivalentAnnual, settings, hraIncluded, activeRange]);
+
+  /** MIT equivalent breakdown for analytics */
+  const mitBreakdown = useMemo((): OfferBreakdown | null => {
+    if (!result.mitEquivalentGrossAnnual) return null;
+    const { basicMonthly, daMonthly, hraMonthly } = backCalculateFromGross(
+      result.mitEquivalentGrossAnnual, settings.daPercentage, hraIncluded, settings.cityType,
+    );
+    const grossMonthly = basicMonthly + daMonthly + hraMonthly;
+    const taMonthly = settings.isTPTACity ? 7200 : 3600;
+    const ppfAnnual = Math.round(basicMonthly * 12 * (settings.globalBenefits.ppfPercent / 100));
+    const gratuityAnnual = Math.round(basicMonthly * 12 * (settings.globalBenefits.gratuityPercent / 100));
+    const perksAnnual = activeRange?.additionalPerksAnnual ?? 0;
+    return {
+      grossAnnual: result.mitEquivalentGrossAnnual,
+      basicMonthly: Math.round(basicMonthly),
+      daMonthly: Math.round(daMonthly),
+      hraMonthly: Math.round(hraMonthly),
+      taMonthly,
+      grossMonthly: Math.round(grossMonthly),
+      ppfAnnual,
+      gratuityAnnual,
+      perksAnnual,
+      ctcAnnual: result.mitEquivalentGrossAnnual + taMonthly * 12 + ppfAnnual + gratuityAnnual + perksAnnual,
+      hraIncluded,
+    };
+  }, [result.mitEquivalentGrossAnnual, settings, hraIncluded, activeRange]);
+
+  const showAnalytics = !isFresher && currentGrossEquivalentAnnual > 0 && !result.isTBD;
 
   // ── Handlers ──────────────────────────────────────────────────────────────────
 
@@ -254,9 +355,12 @@ export default function OfferDecisionPage() {
         hikePercent,
         hraIncluded,
         offerEnforcementMode,
+        salaryInputMode,
+        calculationMode,
+        mitHybridMode,
       },
     });
-  }, [updateSettings, incrementPercent, hikePercent, hraIncluded, offerEnforcementMode]);
+  }, [updateSettings, incrementPercent, hikePercent, hraIncluded, offerEnforcementMode, salaryInputMode, calculationMode, mitHybridMode]);
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
@@ -318,7 +422,7 @@ export default function OfferDecisionPage() {
               <Switch checked={isFresher} onCheckedChange={setIsFresher} />
             </div>
 
-            {/* Experience & current basic — experienced only */}
+            {/* Experience & current salary — experienced only */}
             {!isFresher && (
               <div className="space-y-3">
                 <div className="space-y-1.5">
@@ -344,19 +448,62 @@ export default function OfferDecisionPage() {
                   )}
                 </div>
 
+                {/* Current Salary Tabs */}
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium text-muted-foreground">
-                    Current Basic Pay (₹ / month)
+                    Current Salary
                   </Label>
-                  <NumericInput
-                    value={currentBasicMonthly}
-                    onChange={setCurrentBasicMonthly}
-                    min={0}
-                    step={1000}
-                    className="h-9"
-                  />
+                  <Tabs value={salaryInputMode} onValueChange={v => setSalaryInputMode(v as SalaryInputMode)}>
+                    <TabsList className="h-8 w-full">
+                      <TabsTrigger value="basic" className="flex-1 text-xs h-7">Basic (₹/mo)</TabsTrigger>
+                      <TabsTrigger value="gross" className="flex-1 text-xs h-7">Gross (₹/mo)</TabsTrigger>
+                      <TabsTrigger value="ctc" className="flex-1 text-xs h-7">CTC (₹/yr)</TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="basic" className="mt-2 space-y-1">
+                      <NumericInput
+                        value={currentBasicMonthly}
+                        onChange={setCurrentBasicMonthly}
+                        min={0}
+                        step={1000}
+                        className="h-9"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        DA ({settings.daPercentage}%) added for gross comparison.
+                        Gross equiv ≈ {fmt(Math.round(currentBasicMonthly * (1 + settings.daPercentage / 100) * 12))} / yr
+                      </p>
+                    </TabsContent>
+
+                    <TabsContent value="gross" className="mt-2 space-y-1">
+                      <NumericInput
+                        value={currentGrossMonthly}
+                        onChange={setCurrentGrossMonthly}
+                        min={0}
+                        step={1000}
+                        className="h-9"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Monthly gross (Basic + DA). Annual equiv = {fmt(currentGrossMonthly * 12)}
+                      </p>
+                    </TabsContent>
+
+                    <TabsContent value="ctc" className="mt-2 space-y-1">
+                      <NumericInput
+                        value={currentCtcAnnual}
+                        onChange={setCurrentCtcAnnual}
+                        min={0}
+                        step={50000}
+                        className="h-9"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Benefits stripped to estimate gross ≈ {fmt(Math.round(currentGrossEquivalentAnnual))} / yr
+                        <span className="italic"> (approximate)</span>
+                      </p>
+                    </TabsContent>
+                  </Tabs>
+
                   <p className="text-xs text-muted-foreground">
-                    Offer will be at least {hikePercent}% above this basic pay
+                    Offer will be at least {hikePercent}% above this salary
                   </p>
                 </div>
               </div>
@@ -462,9 +609,85 @@ export default function OfferDecisionPage() {
                 className="h-9"
               />
               <p className="text-xs text-muted-foreground">
-                Offer gross will be at least this % above the candidate's current basic pay equivalent.
+                Offer gross will be at least this % above the candidate's current salary.
                 Ignored for fresh hires. Default 20%.
               </p>
+            </div>
+
+            <Separator />
+
+            {/* Calculation Mode */}
+            <div className="space-y-2">
+              <Label className="text-xs font-medium text-muted-foreground">
+                Calculation Mode
+              </Label>
+              <RadioGroup
+                value={calculationMode}
+                onValueChange={(v) => setCalculationMode(v as CalculationMode)}
+                className="space-y-2.5"
+              >
+                <div className="flex items-start gap-2.5">
+                  <RadioGroupItem value="standard" id="mode-standard" className="mt-0.5 shrink-0" />
+                  <Label htmlFor="mode-standard" className="cursor-pointer leading-tight">
+                    <span className="font-medium text-sm">Standard</span>
+                    <p className="text-xs text-muted-foreground font-normal">
+                      Band placement + quality increments. Hike floor = {hikePercent}% on current salary.
+                    </p>
+                  </Label>
+                </div>
+                <div className="flex items-start gap-2.5">
+                  <RadioGroupItem value="mit_hybrid" id="mode-mit" className="mt-0.5 shrink-0" />
+                  <Label htmlFor="mode-mit" className="cursor-pointer leading-tight">
+                    <span className="font-medium text-sm">MIT Equivalent Hybrid</span>
+                    <p className="text-xs text-muted-foreground font-normal">
+                      Anchors offer to what the candidate would have earned at MIT
+                      for their years of experience. Compares against current salary.
+                    </p>
+                  </Label>
+                </div>
+              </RadioGroup>
+
+              {/* MIT Hybrid sub-options */}
+              {calculationMode === 'mit_hybrid' && (
+                <div className="mt-1 pl-6 space-y-2">
+                  {!isFresher && result.mitEquivalentGrossAnnual > 0 && (
+                    <p className="text-xs text-muted-foreground bg-muted/30 rounded px-2 py-1.5">
+                      MIT equivalent at <strong>{yearsExperience} yrs</strong>:
+                      Cell <strong>{result.mitEquivalentCell}</strong> →{' '}
+                      <strong>{fmt(result.mitEquivalentGrossAnnual)}</strong> / yr
+                    </p>
+                  )}
+                  <Label className="text-xs font-medium text-muted-foreground">
+                    When current salary is BELOW MIT equivalent:
+                  </Label>
+                  <RadioGroup
+                    value={mitHybridMode}
+                    onValueChange={(v) => setMitHybridMode(v as MitHybridMode)}
+                    className="space-y-2"
+                  >
+                    <div className="flex items-start gap-2">
+                      <RadioGroupItem value="cap" id="mit-cap" className="mt-0.5 shrink-0" />
+                      <Label htmlFor="mit-cap" className="cursor-pointer leading-tight">
+                        <span className="font-medium text-xs">Cap at MIT equivalent</span>
+                        <p className="text-[11px] text-muted-foreground font-normal">
+                          Offer = min(current × (1+hike%), MIT equiv).
+                          Conservative — doesn't exceed MIT rate.
+                        </p>
+                      </Label>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <RadioGroupItem value="floor" id="mit-floor" className="mt-0.5 shrink-0" />
+                      <Label htmlFor="mit-floor" className="cursor-pointer leading-tight">
+                        <span className="font-medium text-xs">Floor at MIT equivalent</span>
+                        <p className="text-[11px] text-muted-foreground font-normal">
+                          Offer = max(current × (1+hike%), MIT equiv).
+                          Candidate-friendly — always brings them to MIT level.
+                        </p>
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+              )}
             </div>
 
             <Separator />
@@ -529,6 +752,8 @@ export default function OfferDecisionPage() {
                 <span className="font-medium">DA rate:</span> {settings.daPercentage}%
                 {'  ·  '}
                 <span className="font-medium">City type:</span> {settings.cityType}
+                {'  ·  '}
+                <span className="font-medium">TA:</span> {settings.isTPTACity ? '₹7,200' : '₹3,600'}/mo
               </p>
               <p className="italic">Shared settings — change in the global Settings menu (top right).</p>
             </div>
@@ -597,6 +822,11 @@ export default function OfferDecisionPage() {
                     >
                       {result.bandLabel}
                     </Badge>
+                    {result.mitHybridUsed && (
+                      <Badge variant="secondary" className="text-xs">
+                        MIT Hybrid ({mitHybridMode === 'cap' ? 'Cap' : 'Floor'})
+                      </Badge>
+                    )}
                     {result.isCapped && (
                       <p className="text-xs text-amber-600 dark:text-amber-400">
                         Capped at designation maximum
@@ -660,7 +890,45 @@ export default function OfferDecisionPage() {
                       )}
                     </span>
                   </div>
-                  {result.hikeFloorGrossAnnual > 0 && (
+
+                  {/* MIT Hybrid trail rows */}
+                  {result.mitHybridUsed && result.mitEquivalentGrossAnnual > 0 && (
+                    <>
+                      <Separator className="my-1" />
+                      <div className="grid grid-cols-[12rem_1fr] gap-x-2">
+                        <span className="text-muted-foreground">MIT equiv (Cell {result.mitEquivalentCell}):</span>
+                        <span className="font-medium">
+                          {fmt(result.mitEquivalentGrossAnnual)}
+                          <span className="text-muted-foreground font-normal ml-2 text-xs">
+                            ({candidate.yearsExperience} yrs experience)
+                          </span>
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-[12rem_1fr] gap-x-2">
+                        <span className="text-muted-foreground">Current gross equiv:</span>
+                        <span className="font-medium">
+                          {fmt(currentGrossEquivalentAnnual)}
+                          <span className="text-muted-foreground font-normal ml-2 text-xs">
+                            {result.mitComparisonPath === 'below_mit' ? '(below MIT equiv)' : '(above MIT equiv)'}
+                          </span>
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-[12rem_1fr] gap-x-2">
+                        <span className="text-muted-foreground">
+                          MIT Hybrid ({mitHybridMode === 'cap' ? 'cap' : 'floor'}):
+                        </span>
+                        <span className="font-medium">
+                          {fmt(result.hikeFloorGrossAnnual)}
+                          <span className="text-muted-foreground font-normal ml-2 text-xs">
+                            (snapped to nearest cell)
+                          </span>
+                        </span>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Standard hike floor row */}
+                  {!result.mitHybridUsed && result.hikeFloorGrossAnnual > 0 && (
                     <div className="grid grid-cols-[12rem_1fr] gap-x-2">
                       <span className="text-muted-foreground">Hike floor gross:</span>
                       <span className="font-medium">
@@ -780,6 +1048,230 @@ export default function OfferDecisionPage() {
         </CardContent>
       </Card>
 
+      {/* ── Offer Analytics Dashboard ──────────────────────────────────────────── */}
+      {showAnalytics && (
+        <Collapsible open={isAnalyticsOpen} onOpenChange={setIsAnalyticsOpen}>
+          <Card>
+            <CollapsibleTrigger asChild>
+              <CardHeader className="pb-3 cursor-pointer select-none hover:bg-muted/20 transition-colors rounded-t-lg">
+                <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <BarChart2 className="h-4 w-4" />
+                    Offer Analytics Dashboard
+                    <Badge variant="outline" className="text-[10px] font-normal normal-case tracking-normal">
+                      click to {isAnalyticsOpen ? 'collapse' : 'expand'}
+                    </Badge>
+                  </span>
+                  {isAnalyticsOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </CardTitle>
+              </CardHeader>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent className="pt-0 space-y-6">
+
+                {/* Hike Summary Badges */}
+                <div className="flex flex-wrap gap-2">
+                  {currentBreakdown && (
+                    <>
+                      <div className="flex flex-col items-center px-3 py-2 rounded-md border bg-muted/20 min-w-[110px]">
+                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Hike on Gross</span>
+                        <span className="font-mono font-bold text-base text-green-600 dark:text-green-400">
+                          {pct(currentBreakdown.grossAnnual, result.breakdown.grossAnnual)}
+                        </span>
+                      </div>
+                      <div className="flex flex-col items-center px-3 py-2 rounded-md border bg-muted/20 min-w-[110px]">
+                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Hike on CTC</span>
+                        <span className="font-mono font-bold text-base text-green-600 dark:text-green-400">
+                          {pct(currentBreakdown.ctcAnnual, result.breakdown.ctcAnnual)}
+                        </span>
+                      </div>
+                      <div className="flex flex-col items-center px-3 py-2 rounded-md border bg-muted/20 min-w-[110px]">
+                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Hike on Basic</span>
+                        <span className="font-mono font-bold text-base text-green-600 dark:text-green-400">
+                          {pct(currentBreakdown.basicMonthly, result.breakdown.basicMonthly)}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                  {result.mitEquivalentGrossAnnual > 0 && (
+                    <div className="flex flex-col items-center px-3 py-2 rounded-md border bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800 min-w-[130px]">
+                      <span className="text-[10px] uppercase tracking-wider text-blue-600 dark:text-blue-400">MIT Equiv Cell</span>
+                      <span className="font-mono font-bold text-base text-blue-700 dark:text-blue-300">
+                        #{result.mitEquivalentCell}
+                      </span>
+                      <span className="text-[10px] text-blue-500 dark:text-blue-400">
+                        {fmtL(result.mitEquivalentGrossAnnual)} / yr
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Comparison Table */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Before vs. After Comparison
+                  </p>
+                  <div className="overflow-x-auto rounded-md border">
+                    <table className="w-full text-xs font-mono border-collapse">
+                      <thead>
+                        <tr className="bg-muted/40 border-b text-muted-foreground text-[10px] uppercase tracking-wider">
+                          <th className="text-left px-3 py-2">Component</th>
+                          <th className="text-right px-3 py-2">Current (est.)</th>
+                          {mitBreakdown && <th className="text-right px-3 py-2">MIT Equivalent</th>}
+                          <th className="text-right px-3 py-2">Recommended</th>
+                          <th className="text-right px-3 py-2">Δ Current → Offer</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {currentBreakdown && [
+                          {
+                            label: 'Basic / mo',
+                            current: currentBreakdown.basicMonthly,
+                            mit: mitBreakdown?.basicMonthly,
+                            offered: result.breakdown.basicMonthly,
+                          },
+                          {
+                            label: `DA (${settings.daPercentage}%) / mo`,
+                            current: currentBreakdown.daMonthly,
+                            mit: mitBreakdown?.daMonthly,
+                            offered: result.breakdown.daMonthly,
+                          },
+                          ...(hraIncluded ? [{
+                            label: 'HRA / mo',
+                            current: currentBreakdown.hraMonthly,
+                            mit: mitBreakdown?.hraMonthly,
+                            offered: result.breakdown.hraMonthly,
+                          }] : []),
+                          {
+                            label: 'TA / mo',
+                            current: currentBreakdown.taMonthly,
+                            mit: mitBreakdown?.taMonthly,
+                            offered: result.breakdown.taMonthly,
+                          },
+                        ].map(row => (
+                          <tr key={row.label} className="border-b border-border/30">
+                            <td className="px-3 py-1.5 text-muted-foreground">{row.label}</td>
+                            <td className="px-3 py-1.5 text-right">{fmt(row.current)}</td>
+                            {mitBreakdown && <td className="px-3 py-1.5 text-right text-blue-600 dark:text-blue-400">{row.mit !== undefined ? fmt(row.mit) : '—'}</td>}
+                            <td className="px-3 py-1.5 text-right font-semibold">{fmt(row.offered)}</td>
+                            <td className="px-3 py-1.5 text-right text-green-600 dark:text-green-400">
+                              {pct(row.current, row.offered)}
+                            </td>
+                          </tr>
+                        ))}
+
+                        {/* Gross row */}
+                        {currentBreakdown && (
+                          <tr className="border-b bg-muted/20 font-semibold">
+                            <td className="px-3 py-1.5">Gross / yr</td>
+                            <td className="px-3 py-1.5 text-right">{fmt(currentBreakdown.grossAnnual)}</td>
+                            {mitBreakdown && <td className="px-3 py-1.5 text-right text-blue-600 dark:text-blue-400">{fmt(mitBreakdown.grossAnnual)}</td>}
+                            <td className="px-3 py-1.5 text-right">{fmt(result.breakdown.grossAnnual)}</td>
+                            <td className="px-3 py-1.5 text-right text-green-600 dark:text-green-400 font-bold">
+                              {pct(currentBreakdown.grossAnnual, result.breakdown.grossAnnual)}
+                            </td>
+                          </tr>
+                        )}
+
+                        {/* CTC row */}
+                        {currentBreakdown && (
+                          <tr className="bg-muted/30 font-bold text-sm">
+                            <td className="px-3 py-2">CTC / yr (est.)</td>
+                            <td className="px-3 py-2 text-right">{fmt(currentBreakdown.ctcAnnual)}</td>
+                            {mitBreakdown && <td className="px-3 py-2 text-right text-blue-600 dark:text-blue-400">{fmt(mitBreakdown.ctcAnnual)}</td>}
+                            <td className="px-3 py-2 text-right">{fmt(result.breakdown.ctcAnnual)}</td>
+                            <td className="px-3 py-2 text-right text-green-600 dark:text-green-400">
+                              {pct(currentBreakdown.ctcAnnual, result.breakdown.ctcAnnual)}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Bar Chart */}
+                {currentBreakdown && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Salary Composition Comparison (₹ Annual)
+                    </p>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart
+                        data={[
+                          {
+                            name: 'Current',
+                            Basic: currentBreakdown.basicMonthly * 12,
+                            DA: currentBreakdown.daMonthly * 12,
+                            'HRA+TA': (currentBreakdown.hraMonthly + currentBreakdown.taMonthly) * 12,
+                            'PPF+Gratuity+Perks': currentBreakdown.ppfAnnual + currentBreakdown.gratuityAnnual + currentBreakdown.perksAnnual,
+                          },
+                          ...(mitBreakdown ? [{
+                            name: 'MIT Equiv',
+                            Basic: mitBreakdown.basicMonthly * 12,
+                            DA: mitBreakdown.daMonthly * 12,
+                            'HRA+TA': (mitBreakdown.hraMonthly + mitBreakdown.taMonthly) * 12,
+                            'PPF+Gratuity+Perks': mitBreakdown.ppfAnnual + mitBreakdown.gratuityAnnual + mitBreakdown.perksAnnual,
+                          }] : []),
+                          {
+                            name: 'Recommended',
+                            Basic: result.breakdown.basicMonthly * 12,
+                            DA: result.breakdown.daMonthly * 12,
+                            'HRA+TA': (result.breakdown.hraMonthly + result.breakdown.taMonthly) * 12,
+                            'PPF+Gratuity+Perks': result.breakdown.ppfAnnual + result.breakdown.gratuityAnnual + result.breakdown.perksAnnual,
+                          },
+                        ]}
+                        margin={{ top: 4, right: 8, left: 8, bottom: 4 }}
+                      >
+                        <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                        <YAxis
+                          tickFormatter={(v) => `₹${(v / 100000).toFixed(0)}L`}
+                          tick={{ fontSize: 10 }}
+                          width={50}
+                        />
+                        <Tooltip
+                          formatter={(value: number, name: string) => [fmt(value), name]}
+                          contentStyle={{ fontSize: 11 }}
+                        />
+                        <Legend wrapperStyle={{ fontSize: 11 }} />
+                        <Bar dataKey="Basic" stackId="a" fill="#6366f1" />
+                        <Bar dataKey="DA" stackId="a" fill="#8b5cf6" />
+                        <Bar dataKey="HRA+TA" stackId="a" fill="#a78bfa" />
+                        <Bar dataKey="PPF+Gratuity+Perks" stackId="a" fill="#c4b5fd" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                {/* MIT Equivalent note */}
+                {result.mitEquivalentGrossAnnual > 0 && (
+                  <div className="text-xs text-muted-foreground bg-muted/20 rounded px-3 py-2 space-y-1">
+                    <p className="font-medium text-foreground">How MIT Equivalent is calculated</p>
+                    <p>
+                      WPU Cell 1 = entry gross ({fmtL(activeRange?.minGrossAnnual ?? 1500000)}/yr).
+                      Each year = one 3% increment cell. At <strong>{candidate.yearsExperience} years</strong> →
+                      Cell <strong>{result.mitEquivalentCell}</strong> →{' '}
+                      <strong>{fmt(result.mitEquivalentGrossAnnual)}</strong>/yr.
+                    </p>
+                    {result.mitComparisonPath !== 'na' && (
+                      <p>
+                        Current gross ({fmt(currentGrossEquivalentAnnual)}) is{' '}
+                        <strong>
+                          {result.mitComparisonPath === 'below_mit' ? 'below' : 'above'}
+                        </strong>{' '}
+                        MIT equivalent → {result.mitComparisonPath === 'below_mit'
+                          ? `${mitHybridMode === 'cap' ? 'Cap' : 'Floor'} mode applied`
+                          : 'standard hike applied'}.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
+      )}
+
       {/* ── WPU Pay Scale Reference Table (collapsible) ───────────────────────── */}
       <Collapsible open={isRefTableOpen} onOpenChange={setIsRefTableOpen}>
         <Card>
@@ -804,6 +1296,10 @@ export default function OfferDecisionPage() {
                 ({fmtL(activeRange?.minGrossAnnual ?? 1500000)}), then 3% increments are applied
                 per cell — mirroring UGC's own pay matrix structure. The table updates live with
                 the DA ({settings.daPercentage}%) and HRA settings above.
+                {result.mitEquivalentCell > 0 && (
+                  <> Cell <strong>{result.mitEquivalentCell}</strong> is highlighted as the MIT equivalent
+                  for <strong>{candidate.yearsExperience} years</strong> of experience.</>
+                )}
               </p>
 
               <div className="overflow-x-auto rounded-md border">
@@ -815,7 +1311,7 @@ export default function OfferDecisionPage() {
                       <th className="text-right px-3 py-2">DA / mo</th>
                       {hraIncluded && <th className="text-right px-3 py-2">HRA / mo</th>}
                       <th className="text-right px-3 py-2">WPU Gross / yr</th>
-                      <th className="text-left px-3 py-2">Band</th>
+                      <th className="text-left px-3 py-2">Band / Notes</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -823,11 +1319,13 @@ export default function OfferDecisionPage() {
                       const prevBand = idx > 0 ? wpuPayScale[idx - 1].band : null;
                       const isBandStart = prevBand !== cell.band;
                       const rowBg = BAND_ROW_BG[cell.band] ?? '';
+                      const isMitCell = cell.cellNumber === result.mitEquivalentCell && !isFresher;
+                      const isRecommendedCell = Math.abs(cell.wpuGrossAnnual - result.recommendedGrossAnnual) < 50000;
 
                       return (
                         <tr
                           key={cell.cellNumber}
-                          className={`border-b border-border/30 transition-colors ${rowBg}`}
+                          className={`border-b border-border/30 transition-colors ${rowBg} ${isMitCell ? 'ring-2 ring-blue-400 dark:ring-blue-600 ring-inset' : ''}`}
                         >
                           <td className="px-3 py-1.5 text-muted-foreground">{cell.cellNumber}</td>
                           <td className="px-3 py-1.5 text-right">{fmt(cell.basicMonthly)}</td>
@@ -839,13 +1337,25 @@ export default function OfferDecisionPage() {
                             {fmt(cell.wpuGrossAnnual)}
                           </td>
                           <td className="px-3 py-1.5">
-                            {isBandStart && cell.band !== '—' && (
-                              <span
-                                className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium border ${BAND_BADGE_CLASS[cell.band] ?? 'bg-muted'}`}
-                              >
-                                {cell.band}
-                              </span>
-                            )}
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {isBandStart && cell.band !== '—' && (
+                                <span
+                                  className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium border ${BAND_BADGE_CLASS[cell.band] ?? 'bg-muted'}`}
+                                >
+                                  {cell.band}
+                                </span>
+                              )}
+                              {isMitCell && (
+                                <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 border border-blue-300 dark:border-blue-700">
+                                  ← MIT Equiv
+                                </span>
+                              )}
+                              {isRecommendedCell && !isMitCell && (
+                                <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 border border-green-300 dark:border-green-700">
+                                  ← Recommended
+                                </span>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
