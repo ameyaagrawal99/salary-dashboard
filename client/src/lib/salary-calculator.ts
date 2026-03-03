@@ -476,7 +476,8 @@ export function formatCurrencyINR(amount: number): string {
 export interface CandidateProfile {
   isFresher: boolean;
   yearsExperience: number;
-  currentBasicMonthly: number;   // monthly basic pay at current employer; 0 for fresher
+  /** Candidate's current salary normalised to annual gross equivalent (0 for fresher) */
+  currentGrossEquivalentAnnual: number;
   designation: OfferDesignation;
   phdTier: PhDTier;
   additionalQualIds: string[];   // from ADDITIONAL_QUALIFICATIONS.id
@@ -487,11 +488,12 @@ export interface OfferBreakdown {
   basicMonthly: number;
   daMonthly: number;
   hraMonthly: number;
-  grossMonthly: number;
+  taMonthly: number;    // Travel Allowance (level 10+ = ₹7200 TPTA, ₹3600 other)
+  grossMonthly: number; // Basic + DA + HRA (band gross — TA displayed separately)
   ppfAnnual: number;
   gratuityAnnual: number;
   perksAnnual: number;
-  ctcAnnual: number;
+  ctcAnnual: number;    // grossAnnual + taAnnual + ppf + gratuity + perks
   hraIncluded: boolean;
 }
 
@@ -506,6 +508,12 @@ export interface OfferDecisionResult {
   incrementPercent: number;
   hikeFloorGrossAnnual: number;   // 0 if fresher
   hikeFloorWasApplied: boolean;
+  // MIT Hybrid fields (0/'na'/false when calculationMode = 'standard')
+  mitEquivalentGrossAnnual: number;
+  mitEquivalentCell: number;
+  mitComparisonPath: 'below_mit' | 'above_mit' | 'na';
+  mitHybridUsed: boolean;
+  rawOfferBeforeRounding: number; // pre-cell-snap offer gross
   // Analytics
   positionInRangePercent: number; // 0–100
   withinRange: boolean;
@@ -567,19 +575,24 @@ function buildBreakdown(
   ppfPercent: number,
   gratuityPercent: number,
   perksAnnual: number,
+  isTPTACity: boolean = false,
 ): OfferBreakdown {
   const { basicMonthly, daMonthly, hraMonthly } = backCalculateFromGross(
     grossAnnual, daPercent, hraIncluded, cityType,
   );
   const grossMonthly = basicMonthly + daMonthly + hraMonthly;
+  // TA: Level 10+ (all AP/Associate Prof/Prof are Level 10+)
+  const taMonthly = isTPTACity ? TA_RATES.level9Plus.tptaCity : TA_RATES.level9Plus.otherCity;
+  const taAnnual = taMonthly * 12;
   const ppfAnnual = Math.round(basicMonthly * 12 * (ppfPercent / 100));
   const gratuityAnnual = Math.round(basicMonthly * 12 * (gratuityPercent / 100));
-  const ctcAnnual = grossAnnual + ppfAnnual + gratuityAnnual + perksAnnual;
+  const ctcAnnual = grossAnnual + taAnnual + ppfAnnual + gratuityAnnual + perksAnnual;
   return {
     grossAnnual,
     basicMonthly,
     daMonthly,
     hraMonthly,
+    taMonthly,
     grossMonthly,
     ppfAnnual,
     gratuityAnnual,
@@ -589,18 +602,56 @@ function buildBreakdown(
   };
 }
 
+// ─── MIT Equivalent helpers ───────────────────────────────────────────────────
+
+/**
+ * Returns the WPU pay scale cell corresponding to a candidate's years of experience.
+ * Cell index = yearsExperience (0-based in array), clamped to table length.
+ * (Cell 1 = entry, Cell N = N years at MIT.)
+ */
+export function getMitEquivalentCell(
+  yearsExperience: number,
+  wpuPayScale: WpuPayScaleCell[],
+): WpuPayScaleCell | null {
+  if (!wpuPayScale.length) return null;
+  const idx = Math.max(0, Math.min(yearsExperience, wpuPayScale.length - 1));
+  return wpuPayScale[idx];
+}
+
+/**
+ * Finds the WPU pay scale cell whose gross annual is closest to targetGross.
+ * Used to snap a calculated offer to the nearest published cell value.
+ */
+export function findNearestWpuCell(
+  targetGross: number,
+  wpuPayScale: WpuPayScaleCell[],
+): WpuPayScaleCell | null {
+  if (!wpuPayScale.length) return null;
+  return wpuPayScale.reduce((best, cell) => {
+    return Math.abs(cell.wpuGrossAnnual - targetGross) < Math.abs(best.wpuGrossAnnual - targetGross)
+      ? cell : best;
+  });
+}
+
+// ─── Main Offer Decision Calculator ──────────────────────────────────────────
+
 /**
  * Main offer decision calculator.
  *
- * Algorithm:
+ * Standard mode algorithm:
  *  1. Find the designation range; return isTBD if not yet configured.
  *  2. Flag if candidate experience ≥ 12 years (Assoc Prof threshold).
  *  3. Find the WPU salary band for the candidate's experience level.
  *  4. Resolve total quality increments (PhD tier + additional, capped at MAX_TOTAL_INCREMENTS).
  *  5. Compute band-based gross using computeSlabGross().
- *  6. For experienced candidates, compute the hike floor gross.
+ *  6. For experienced candidates, compute the hike floor gross from currentGrossEquivalentAnnual.
  *  7. Recommended gross = max(band gross, hike floor); clamp to designation max.
- *  8. Back-calculate salary breakdown and compute CTC.
+ *  8. Back-calculate salary breakdown and compute CTC (including TA).
+ *
+ * MIT Hybrid mode additionally:
+ *  6a. Compute MIT equivalent gross (what candidate would earn at MIT for their experience).
+ *  6b. Apply cap or floor logic against current gross vs MIT equivalent.
+ *  6c. Snap to nearest WPU cell.
  */
 export function calculateOfferDecision(
   candidate: CandidateProfile,
@@ -611,10 +662,14 @@ export function calculateOfferDecision(
   cityType: CityType,
   ppfPercent: number,
   gratuityPercent: number,
+  isTPTACity: boolean,
+  calculationMode: 'standard' | 'mit_hybrid',
+  mitHybridMode: 'cap' | 'floor',
+  wpuPayScale: WpuPayScaleCell[],
 ): OfferDecisionResult {
   const range = DESIGNATION_SALARY_RANGES.find(r => r.designation === candidate.designation);
   if (!range || range.minGrossAnnual === 0) {
-    const fallback = buildBreakdown(0, daPercent, hraIncluded, cityType, ppfPercent, gratuityPercent, 0);
+    const fallback = buildBreakdown(0, daPercent, hraIncluded, cityType, ppfPercent, gratuityPercent, 0, isTPTACity);
     return {
       recommendedGrossAnnual: 0,
       breakdown: fallback,
@@ -625,6 +680,11 @@ export function calculateOfferDecision(
       incrementPercent,
       hikeFloorGrossAnnual: 0,
       hikeFloorWasApplied: false,
+      mitEquivalentGrossAnnual: 0,
+      mitEquivalentCell: 0,
+      mitComparisonPath: 'na',
+      mitHybridUsed: false,
+      rawOfferBeforeRounding: 0,
       positionInRangePercent: 0,
       withinRange: false,
       isCapped: false,
@@ -656,16 +716,49 @@ export function calculateOfferDecision(
   }, 0);
   const totalIncrements = Math.min(phdIncrements + additionalIncrements, MAX_TOTAL_INCREMENTS);
 
-  // Compute slab gross from band placement + quality increments
+  // Compute slab gross from band placement + quality increments (standard mode anchor)
   const bandGross = computeSlabGross(bandMinGross, totalIncrements, incrementPercent, range.maxGrossAnnual);
+
+  // MIT Equivalent: what the candidate would earn at MIT with their years of experience
+  const mitCell = getMitEquivalentCell(candidate.yearsExperience, wpuPayScale);
+  const mitEquivalentGrossAnnual = mitCell?.wpuGrossAnnual ?? 0;
+  const mitEquivalentCell = mitCell?.cellNumber ?? 0;
 
   // Compute hike floor for experienced candidates
   let hikeFloorGrossAnnual = 0;
   let hikeFloorWasApplied = false;
-  if (!candidate.isFresher && candidate.currentBasicMonthly > 0) {
-    const newBasicMonthly = Math.round(candidate.currentBasicMonthly * (1 + hikePercent / 100));
-    const newDaMonthly = Math.round(newBasicMonthly * (daPercent / 100));
-    hikeFloorGrossAnnual = (newBasicMonthly + newDaMonthly) * 12;
+  let mitComparisonPath: OfferDecisionResult['mitComparisonPath'] = 'na';
+  let mitHybridUsed = false;
+  let rawOfferBeforeRounding = 0;
+
+  if (!candidate.isFresher && candidate.currentGrossEquivalentAnnual > 0) {
+    const currentGross = candidate.currentGrossEquivalentAnnual;
+    const hikedGross = Math.round(currentGross * (1 + hikePercent / 100));
+
+    if (calculationMode === 'mit_hybrid' && mitEquivalentGrossAnnual > 0) {
+      // MIT Hybrid: compare current salary against MIT equivalent
+      mitHybridUsed = true;
+      if (currentGross < mitEquivalentGrossAnnual) {
+        mitComparisonPath = 'below_mit';
+        const rawHybrid = mitHybridMode === 'cap'
+          ? Math.min(hikedGross, mitEquivalentGrossAnnual)
+          : Math.max(hikedGross, mitEquivalentGrossAnnual);
+        // Snap to nearest WPU cell
+        const snappedCell = findNearestWpuCell(rawHybrid, wpuPayScale);
+        rawOfferBeforeRounding = rawHybrid;
+        hikeFloorGrossAnnual = snappedCell?.wpuGrossAnnual ?? rawHybrid;
+      } else {
+        mitComparisonPath = 'above_mit';
+        // Current salary > MIT equiv: standard hike on current
+        const snappedCell = findNearestWpuCell(hikedGross, wpuPayScale);
+        rawOfferBeforeRounding = hikedGross;
+        hikeFloorGrossAnnual = snappedCell?.wpuGrossAnnual ?? hikedGross;
+      }
+    } else {
+      // Standard mode: hike floor is simply the hiked current gross
+      hikeFloorGrossAnnual = hikedGross;
+      rawOfferBeforeRounding = hikedGross;
+    }
   }
 
   let recommendedGrossAnnual = Math.max(bandGross, hikeFloorGrossAnnual);
@@ -683,7 +776,7 @@ export function calculateOfferDecision(
 
   const breakdown = buildBreakdown(
     recommendedGrossAnnual, daPercent, hraIncluded, cityType,
-    ppfPercent, gratuityPercent, range.additionalPerksAnnual,
+    ppfPercent, gratuityPercent, range.additionalPerksAnnual, isTPTACity,
   );
 
   return {
@@ -696,6 +789,11 @@ export function calculateOfferDecision(
     incrementPercent,
     hikeFloorGrossAnnual,
     hikeFloorWasApplied,
+    mitEquivalentGrossAnnual,
+    mitEquivalentCell,
+    mitComparisonPath,
+    mitHybridUsed,
+    rawOfferBeforeRounding,
     positionInRangePercent,
     withinRange: !isCapped && recommendedGrossAnnual >= range.minGrossAnnual,
     isCapped,

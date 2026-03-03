@@ -32,11 +32,18 @@ export interface HraConfig {
   lumpSumValue: number;
 }
 
+export type SalaryInputMode = 'basic' | 'gross' | 'ctc';
+export type CalculationMode = 'standard' | 'mit_hybrid';
+export type MitHybridMode = 'cap' | 'floor';
+
 export interface OfferDecisionDefaults {
-  incrementPercent: number;   // quality increment step size (default 20%)
-  hikePercent: number;        // minimum hike over current salary (default 20%)
-  hraIncluded: boolean;       // whether HRA is part of gross (default false — housing is a perk)
+  incrementPercent: number;       // quality increment step size (default 20%)
+  hikePercent: number;            // minimum hike over current salary (default 20%)
+  hraIncluded: boolean;           // whether HRA is part of gross (default false — housing is a perk)
   offerEnforcementMode: EnforcementMode;  // hard = block; soft = warn
+  salaryInputMode: SalaryInputMode;       // which tab for current salary entry (default 'basic')
+  calculationMode: CalculationMode;       // standard or MIT equivalent hybrid (default 'standard')
+  mitHybridMode: MitHybridMode;           // cap or floor when current < MIT equiv (default 'cap')
 }
 
 export interface GlobalSettings {
@@ -78,7 +85,7 @@ const DEFAULT_LEVEL_BENEFITS: LevelBenefits = {
   "15": { housing: 54167, professionalDev: 8333, ppfPercent: 12, gratuityPercent: 4.81, healthInsurance: 1250 },
 };
 
-const SETTINGS_VERSION = 8;
+const SETTINGS_VERSION = 9;
 
 const DEFAULT_HRA_CONFIG: HraConfig = {
   providingHousing: true,
@@ -120,6 +127,9 @@ const DEFAULT_SETTINGS: GlobalSettings = {
     hikePercent: 20,
     hraIncluded: false,
     offerEnforcementMode: 'soft',
+    salaryInputMode: 'basic',
+    calculationMode: 'standard',
+    mitHybridMode: 'cap',
   },
 };
 
@@ -150,7 +160,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         const migrated: GlobalSettings = {
           ...DEFAULT_SETTINGS,
           ...parsed,
-          // v8: ensure offerDecisionDefaults exists (new field)
+          // v8-v9: ensure offerDecisionDefaults exists with all fields merged
           offerDecisionDefaults: {
             ...DEFAULT_SETTINGS.offerDecisionDefaults,
             ...(parsed.offerDecisionDefaults ?? {}),
