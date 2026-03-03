@@ -10,16 +10,18 @@ import { SettingsDialog } from "@/components/settings-dialog";
 import { TourOverlay } from "@/components/tour-overlay";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calculator, BarChart3, Users, Sun, Moon, GraduationCap, PlayCircle } from "lucide-react";
+import { Calculator, BarChart3, Users, Sun, Moon, GraduationCap, PlayCircle, Target } from "lucide-react";
 import NotFound from "@/pages/not-found";
 import CalculatorPage from "@/pages/calculator";
 import ComparisonPage from "@/pages/comparison";
 import BulkHiringPage from "@/pages/bulk-hiring";
+import OfferDecisionPage from "@/pages/offer-decision";
 
 const NAV_ITEMS = [
   { path: "/", label: "Calculator", icon: Calculator },
   { path: "/comparison", label: "All Positions", icon: BarChart3 },
   { path: "/bulk-hiring", label: "Bulk Hiring", icon: Users },
+  { path: "/offer-decision", label: "Offer Decision", icon: Target },
 ];
 
 function ThemeToggle() {
@@ -136,6 +138,7 @@ function Router() {
       <Route path="/" component={CalculatorPage} />
       <Route path="/comparison" component={ComparisonPage} />
       <Route path="/bulk-hiring" component={BulkHiringPage} />
+      <Route path="/offer-decision" component={OfferDecisionPage} />
       <Route component={NotFound} />
     </Switch>
   );

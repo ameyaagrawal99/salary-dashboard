@@ -32,6 +32,13 @@ export interface HraConfig {
   lumpSumValue: number;
 }
 
+export interface OfferDecisionDefaults {
+  incrementPercent: number;   // quality increment step size (default 20%)
+  hikePercent: number;        // minimum hike over current salary (default 20%)
+  hraIncluded: boolean;       // whether HRA is part of gross (default false — housing is a perk)
+  offerEnforcementMode: EnforcementMode;  // hard = block; soft = warn
+}
+
 export interface GlobalSettings {
   multiplierMethod: MultiplierMethod;
   baseMultiplier: number;
@@ -51,6 +58,7 @@ export interface GlobalSettings {
   eighthCpcFitmentFactor: number;
   eighthCpcDaPercent: number;
   wpuBasePay: '7th' | '8th' | 'both';
+  offerDecisionDefaults: OfferDecisionDefaults;
 }
 
 const DEFAULT_GLOBAL_BENEFITS: Benefits = {
@@ -70,7 +78,7 @@ const DEFAULT_LEVEL_BENEFITS: LevelBenefits = {
   "15": { housing: 54167, professionalDev: 8333, ppfPercent: 12, gratuityPercent: 4.81, healthInsurance: 1250 },
 };
 
-const SETTINGS_VERSION = 7;
+const SETTINGS_VERSION = 8;
 
 const DEFAULT_HRA_CONFIG: HraConfig = {
   providingHousing: true,
@@ -107,6 +115,12 @@ const DEFAULT_SETTINGS: GlobalSettings = {
   eighthCpcFitmentFactor: 2.28,
   eighthCpcDaPercent: 0,
   wpuBasePay: '7th',
+  offerDecisionDefaults: {
+    incrementPercent: 20,
+    hikePercent: 20,
+    hraIncluded: false,
+    offerEnforcementMode: 'soft',
+  },
 };
 
 interface SettingsContextType {
@@ -131,7 +145,20 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         if (savedVersion >= SETTINGS_VERSION) {
           return { ...DEFAULT_SETTINGS, ...parsed };
         }
-        localStorage.removeItem('wpu-goa-settings');
+        // Migration: merge saved settings with new defaults so existing
+        // preferences are preserved while new fields get their defaults.
+        const migrated: GlobalSettings = {
+          ...DEFAULT_SETTINGS,
+          ...parsed,
+          // v8: ensure offerDecisionDefaults exists (new field)
+          offerDecisionDefaults: {
+            ...DEFAULT_SETTINGS.offerDecisionDefaults,
+            ...(parsed.offerDecisionDefaults ?? {}),
+          },
+        };
+        localStorage.setItem('wpu-goa-settings-version', SETTINGS_VERSION.toString());
+        localStorage.setItem('wpu-goa-settings', JSON.stringify(migrated));
+        return migrated;
       }
       localStorage.setItem('wpu-goa-settings-version', SETTINGS_VERSION.toString());
     } catch {}
