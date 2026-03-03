@@ -6,6 +6,15 @@ import {
   type MultiplierMethod,
   HRA_RATES,
   TA_RATES,
+  DESIGNATION_SALARY_RANGES,
+  WPU_SALARY_BANDS,
+  PHD_TIER_INCREMENTS,
+  ADDITIONAL_QUALIFICATIONS,
+  MAX_TOTAL_INCREMENTS,
+  ASSOC_PROF_EXPERIENCE_THRESHOLD,
+  WPU_CELL_INCREMENT_RATE,
+  type OfferDesignation,
+  type PhDTier,
 } from './ugc-data';
 import type { HraConfig, PositionPremiumRange, PositionSalaryCap, EnforcementMode } from './settings-context';
 
@@ -458,4 +467,311 @@ export function formatCurrency(amount: number, compact: boolean = false): string
 
 export function formatCurrencyINR(amount: number): string {
   return `₹${formatCurrency(amount)}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OFFER DECISION CALCULATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface CandidateProfile {
+  isFresher: boolean;
+  yearsExperience: number;
+  currentBasicMonthly: number;   // monthly basic pay at current employer; 0 for fresher
+  designation: OfferDesignation;
+  phdTier: PhDTier;
+  additionalQualIds: string[];   // from ADDITIONAL_QUALIFICATIONS.id
+}
+
+export interface OfferBreakdown {
+  grossAnnual: number;
+  basicMonthly: number;
+  daMonthly: number;
+  hraMonthly: number;
+  grossMonthly: number;
+  ppfAnnual: number;
+  gratuityAnnual: number;
+  perksAnnual: number;
+  ctcAnnual: number;
+  hraIncluded: boolean;
+}
+
+export interface OfferDecisionResult {
+  recommendedGrossAnnual: number;
+  breakdown: OfferBreakdown;
+  // Decision trail — for the management Offer Worksheet
+  bandLabel: string;
+  phdIncrements: number;
+  additionalIncrements: number;
+  totalIncrements: number;
+  incrementPercent: number;
+  hikeFloorGrossAnnual: number;   // 0 if fresher
+  hikeFloorWasApplied: boolean;
+  // Analytics
+  positionInRangePercent: number; // 0–100
+  withinRange: boolean;
+  isCapped: boolean;
+  isTBD: boolean;
+  isAssocProfCandidate: boolean;
+}
+
+/**
+ * Back-calculate basic, DA, and HRA from a target WPU gross salary.
+ * When HRA is not included (housing provided as perk), basic absorbs everything.
+ */
+export function backCalculateFromGross(
+  targetGrossAnnual: number,
+  daPercent: number,
+  hraIncluded: boolean,
+  cityType: CityType,
+): { basicMonthly: number; daMonthly: number; hraMonthly: number } {
+  const daRate = daPercent / 100;
+  const hraRate = hraIncluded ? HRA_RATES[cityType].rate / 100 : 0;
+  const basicMonthly = Math.round(targetGrossAnnual / ((1 + daRate + hraRate) * 12));
+  const daMonthly = Math.round(basicMonthly * daRate);
+  const hraMonthly = Math.round(basicMonthly * hraRate);
+  return { basicMonthly, daMonthly, hraMonthly };
+}
+
+/**
+ * Compute the WPU gross salary for a given number of quality increments applied
+ * to a band's minimum. Each increment multiplies the running total by (1 + incrementPercent/100),
+ * capped at the band maximum. Excess increments carry the candidate upward through subsequent bands.
+ *
+ * @param designation  - used to find the right sequence of bands
+ * @param bandMinGross - starting gross for the candidate's experience band
+ * @param totalIncrements - number of quality increments to apply
+ * @param incrementPercent - percentage per step (e.g. 20 for 20%)
+ * @param designationMaxGross - hard ceiling from the designation range
+ */
+export function computeSlabGross(
+  bandMinGross: number,
+  totalIncrements: number,
+  incrementPercent: number,
+  designationMaxGross: number,
+): number {
+  let result = bandMinGross;
+  const factor = 1 + incrementPercent / 100;
+  for (let i = 0; i < totalIncrements; i++) {
+    result = Math.round(result * factor);
+    if (result >= designationMaxGross) return designationMaxGross;
+  }
+  return result;
+}
+
+/** Build the OfferBreakdown from a final gross and supporting parameters */
+function buildBreakdown(
+  grossAnnual: number,
+  daPercent: number,
+  hraIncluded: boolean,
+  cityType: CityType,
+  ppfPercent: number,
+  gratuityPercent: number,
+  perksAnnual: number,
+): OfferBreakdown {
+  const { basicMonthly, daMonthly, hraMonthly } = backCalculateFromGross(
+    grossAnnual, daPercent, hraIncluded, cityType,
+  );
+  const grossMonthly = basicMonthly + daMonthly + hraMonthly;
+  const ppfAnnual = Math.round(basicMonthly * 12 * (ppfPercent / 100));
+  const gratuityAnnual = Math.round(basicMonthly * 12 * (gratuityPercent / 100));
+  const ctcAnnual = grossAnnual + ppfAnnual + gratuityAnnual + perksAnnual;
+  return {
+    grossAnnual,
+    basicMonthly,
+    daMonthly,
+    hraMonthly,
+    grossMonthly,
+    ppfAnnual,
+    gratuityAnnual,
+    perksAnnual,
+    ctcAnnual,
+    hraIncluded,
+  };
+}
+
+/**
+ * Main offer decision calculator.
+ *
+ * Algorithm:
+ *  1. Find the designation range; return isTBD if not yet configured.
+ *  2. Flag if candidate experience ≥ 12 years (Assoc Prof threshold).
+ *  3. Find the WPU salary band for the candidate's experience level.
+ *  4. Resolve total quality increments (PhD tier + additional, capped at MAX_TOTAL_INCREMENTS).
+ *  5. Compute band-based gross using computeSlabGross().
+ *  6. For experienced candidates, compute the hike floor gross.
+ *  7. Recommended gross = max(band gross, hike floor); clamp to designation max.
+ *  8. Back-calculate salary breakdown and compute CTC.
+ */
+export function calculateOfferDecision(
+  candidate: CandidateProfile,
+  incrementPercent: number,
+  hikePercent: number,
+  daPercent: number,
+  hraIncluded: boolean,
+  cityType: CityType,
+  ppfPercent: number,
+  gratuityPercent: number,
+): OfferDecisionResult {
+  const range = DESIGNATION_SALARY_RANGES.find(r => r.designation === candidate.designation);
+  if (!range || range.minGrossAnnual === 0) {
+    const fallback = buildBreakdown(0, daPercent, hraIncluded, cityType, ppfPercent, gratuityPercent, 0);
+    return {
+      recommendedGrossAnnual: 0,
+      breakdown: fallback,
+      bandLabel: '—',
+      phdIncrements: 0,
+      additionalIncrements: 0,
+      totalIncrements: 0,
+      incrementPercent,
+      hikeFloorGrossAnnual: 0,
+      hikeFloorWasApplied: false,
+      positionInRangePercent: 0,
+      withinRange: false,
+      isCapped: false,
+      isTBD: true,
+      isAssocProfCandidate: candidate.yearsExperience >= ASSOC_PROF_EXPERIENCE_THRESHOLD,
+    };
+  }
+
+  const isAssocProfCandidate = candidate.yearsExperience >= ASSOC_PROF_EXPERIENCE_THRESHOLD;
+
+  // Find the appropriate band for this designation and experience
+  const designationBands = WPU_SALARY_BANDS.filter(b => b.designation === candidate.designation);
+  let band = designationBands.find(
+    b => candidate.yearsExperience >= b.minYearsExp && candidate.yearsExperience < b.maxYearsExp,
+  );
+  // If experience exceeds all defined bands, use the highest band available
+  if (!band && designationBands.length > 0) {
+    band = designationBands[designationBands.length - 1];
+  }
+
+  const bandLabel = band?.label ?? '—';
+  const bandMinGross = band?.minGrossAnnual ?? range.minGrossAnnual;
+
+  // Resolve quality increments
+  const phdIncrements = PHD_TIER_INCREMENTS[candidate.phdTier] ?? 0;
+  const additionalIncrements = candidate.additionalQualIds.reduce((sum, id) => {
+    const qual = ADDITIONAL_QUALIFICATIONS.find(q => q.id === id);
+    return sum + (qual?.increments ?? 0);
+  }, 0);
+  const totalIncrements = Math.min(phdIncrements + additionalIncrements, MAX_TOTAL_INCREMENTS);
+
+  // Compute slab gross from band placement + quality increments
+  const bandGross = computeSlabGross(bandMinGross, totalIncrements, incrementPercent, range.maxGrossAnnual);
+
+  // Compute hike floor for experienced candidates
+  let hikeFloorGrossAnnual = 0;
+  let hikeFloorWasApplied = false;
+  if (!candidate.isFresher && candidate.currentBasicMonthly > 0) {
+    const newBasicMonthly = Math.round(candidate.currentBasicMonthly * (1 + hikePercent / 100));
+    const newDaMonthly = Math.round(newBasicMonthly * (daPercent / 100));
+    hikeFloorGrossAnnual = (newBasicMonthly + newDaMonthly) * 12;
+  }
+
+  let recommendedGrossAnnual = Math.max(bandGross, hikeFloorGrossAnnual);
+  if (hikeFloorGrossAnnual > bandGross) hikeFloorWasApplied = true;
+
+  // Enforce designation minimum and maximum
+  recommendedGrossAnnual = Math.max(recommendedGrossAnnual, range.minGrossAnnual);
+  const isCapped = recommendedGrossAnnual > range.maxGrossAnnual;
+  recommendedGrossAnnual = Math.min(recommendedGrossAnnual, range.maxGrossAnnual);
+
+  const rangeSpan = range.maxGrossAnnual - range.minGrossAnnual;
+  const positionInRangePercent = rangeSpan > 0
+    ? Math.round(((recommendedGrossAnnual - range.minGrossAnnual) / rangeSpan) * 100)
+    : 0;
+
+  const breakdown = buildBreakdown(
+    recommendedGrossAnnual, daPercent, hraIncluded, cityType,
+    ppfPercent, gratuityPercent, range.additionalPerksAnnual,
+  );
+
+  return {
+    recommendedGrossAnnual,
+    breakdown,
+    bandLabel,
+    phdIncrements,
+    additionalIncrements,
+    totalIncrements,
+    incrementPercent,
+    hikeFloorGrossAnnual,
+    hikeFloorWasApplied,
+    positionInRangePercent,
+    withinRange: !isCapped && recommendedGrossAnnual >= range.minGrossAnnual,
+    isCapped,
+    isTBD: false,
+    isAssocProfCandidate,
+  };
+}
+
+// ─── WPU Pay Scale Reference Table ───────────────────────────────────────────
+
+/** One cell in the WPU pay scale (mirrors a single UGC pay matrix cell) */
+export interface WpuPayScaleCell {
+  cellNumber: number;
+  basicMonthly: number;
+  daMonthly: number;
+  hraMonthly: number;
+  wpuGrossAnnual: number;
+  band: string;   // e.g. 'Band 1 — Entry (L10)' or '—' if outside defined bands
+}
+
+/**
+ * Generate the WPU pay scale reference table using UGC-style 3% cell progression.
+ *
+ * Algorithm:
+ *  1. Back-calculate the entry basic from WPU minimum gross (₹15L for Asst Prof).
+ *  2. Apply WPU_CELL_INCREMENT_RATE (3%) per cell iteratively — mirrors UGC progression.
+ *  3. For each cell, compute WPU gross and determine which band it falls into.
+ *  4. Stop when gross exceeds the designation maximum (₹28L for Asst Prof).
+ *
+ * The table updates live with the DA % and HRA settings passed in.
+ */
+export function generateWpuPayScaleTable(
+  daPercent: number,
+  hraIncluded: boolean,
+  cityType: CityType,
+): WpuPayScaleCell[] {
+  const apRange = DESIGNATION_SALARY_RANGES.find(r => r.designation === 'assistant_professor');
+  if (!apRange || apRange.minGrossAnnual === 0) return [];
+
+  const hraRate = hraIncluded ? (HRA_RATES[cityType]?.rate ?? 0) : 0;
+  const daRate = daPercent / 100;
+
+  // Back-calculate entry basic from minimum WPU gross
+  const entryBasic = apRange.minGrossAnnual / ((1 + daRate + hraRate) * 12);
+
+  const cells: WpuPayScaleCell[] = [];
+  let basicMonthly = entryBasic;
+  let cellNumber = 1;
+
+  while (true) {
+    const daMonthly = basicMonthly * daRate;
+    const hraMonthly = basicMonthly * hraRate;
+    const wpuGrossAnnual = Math.round((basicMonthly + daMonthly + hraMonthly) * 12);
+
+    if (wpuGrossAnnual > apRange.maxGrossAnnual) break;
+
+    // Determine which band this cell falls into
+    const matchingBand = WPU_SALARY_BANDS.find(
+      b => b.designation === 'assistant_professor'
+        && wpuGrossAnnual >= b.minGrossAnnual
+        && wpuGrossAnnual <= b.maxGrossAnnual,
+    );
+    const band = matchingBand?.label ?? '—';
+
+    cells.push({
+      cellNumber,
+      basicMonthly: Math.round(basicMonthly),
+      daMonthly: Math.round(daMonthly),
+      hraMonthly: Math.round(hraMonthly),
+      wpuGrossAnnual,
+      band,
+    });
+
+    basicMonthly = basicMonthly * (1 + WPU_CELL_INCREMENT_RATE);
+    cellNumber++;
+  }
+
+  return cells;
 }

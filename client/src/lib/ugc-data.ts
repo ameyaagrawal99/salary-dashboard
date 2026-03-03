@@ -234,3 +234,166 @@ export const MULTIPLIER_METHODS: { value: MultiplierMethod; label: string; descr
     detail: "Multiplier is applied directly to the basic pay. DA, HRA are then recalculated on the new (higher) basic. This increases future liability as all allowances scale with the enhanced basic."
   }
 ];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OFFER DECISION — Salary Range & Qualification Framework
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type OfferDesignation = 'assistant_professor' | 'associate_professor' | 'professor';
+
+/** WPU-approved gross salary range per designation. Set minGrossAnnual/maxGrossAnnual to 0 when TBD. */
+export interface DesignationSalaryRange {
+  designation: OfferDesignation;
+  label: string;
+  positionIds: number[];        // maps to FACULTY_POSITIONS ids
+  entryLevel: string;           // lowest UGC pay level for this designation
+  minGrossAnnual: number;       // 0 = TBD (not yet decided by management)
+  maxGrossAnnual: number;       // 0 = TBD
+  additionalPerksAnnual: number;
+}
+
+export const DESIGNATION_SALARY_RANGES: DesignationSalaryRange[] = [
+  {
+    designation: 'assistant_professor',
+    label: 'Assistant Professor',
+    positionIds: [1, 2, 3],
+    entryLevel: '10',
+    minGrossAnnual: 1500000,
+    maxGrossAnnual: 2800000,
+    additionalPerksAnnual: 560000,  // Housing ₹4L + CPDA ₹1.5L + Health ₹0.1L
+  },
+  {
+    designation: 'associate_professor',
+    label: 'Associate Professor',
+    positionIds: [4],
+    entryLevel: '13A',
+    minGrossAnnual: 0,         // TBD — enter once management decides
+    maxGrossAnnual: 0,         // TBD
+    additionalPerksAnnual: 0,  // TBD
+  },
+  {
+    designation: 'professor',
+    label: 'Professor',
+    positionIds: [5, 6],
+    entryLevel: '14',
+    minGrossAnnual: 0,         // TBD
+    maxGrossAnnual: 0,         // TBD
+    additionalPerksAnnual: 0,  // TBD
+  },
+];
+
+/**
+ * WPU salary bands aligned to UGC CAS levels.
+ * Per UGC Regulations 2018 Career Advancement Scheme:
+ *   L10 (Entry):           0–4 years service
+ *   L11 (Senior Scale):    4–9 years (4 at L10 + 5 at L11)
+ *   L12 (Selection Grade): 9–12 years (approaching Assoc Prof threshold)
+ *   12+ years → flag as Assoc Prof candidate
+ */
+export interface WpuSalaryBand {
+  bandId: string;
+  designation: OfferDesignation;
+  label: string;              // e.g. 'Band 1 — Entry (L10)'
+  ugcLevel: string;
+  minGrossAnnual: number;
+  maxGrossAnnual: number;
+  minYearsExp: number;        // inclusive
+  maxYearsExp: number;        // exclusive
+}
+
+export const WPU_SALARY_BANDS: WpuSalaryBand[] = [
+  {
+    bandId: 'ap_1', designation: 'assistant_professor',
+    label: 'Band 1 — Entry (L10)', ugcLevel: '10',
+    minGrossAnnual: 1500000, maxGrossAnnual: 1800000,
+    minYearsExp: 0, maxYearsExp: 4,
+  },
+  {
+    bandId: 'ap_2', designation: 'assistant_professor',
+    label: 'Band 2 — Senior Scale (L11)', ugcLevel: '11',
+    minGrossAnnual: 1800001, maxGrossAnnual: 2200000,
+    minYearsExp: 4, maxYearsExp: 9,
+  },
+  {
+    bandId: 'ap_3', designation: 'assistant_professor',
+    label: 'Band 3 — Selection Grade (L12)', ugcLevel: '12',
+    minGrossAnnual: 2200001, maxGrossAnnual: 2800000,
+    minYearsExp: 9, maxYearsExp: 12,
+  },
+  // Associate Professor and Professor bands: add entries here once ranges are decided
+];
+
+/** Years of relevant experience at which a candidate should be considered for Associate Professor */
+export const ASSOC_PROF_EXPERIENCE_THRESHOLD = 12;
+
+// ─── PhD Institution Tiers ────────────────────────────────────────────────────
+
+export type PhDTier = 'top_international' | 'iit_iisc' | 'nit_bits_top' | 'state_regional';
+
+/** Number of quality increments granted per PhD institution tier */
+export const PHD_TIER_INCREMENTS: Record<PhDTier, number> = {
+  top_international: 3,  // MIT, Stanford, Cambridge, ETH Zurich, etc.
+  iit_iisc:          2,  // Any IIT campus or IISc Bangalore
+  nit_bits_top:      1,  // NIT, BITS Pilani, IISER, JNU, Delhi Univ, Hyderabad Univ
+  state_regional:    0,  // State/regional universities (accepted case-by-case; no bonus)
+};
+
+export const PHD_TIER_LABELS: Record<PhDTier, { label: string; description: string }> = {
+  top_international: {
+    label: 'Top International',
+    description: 'MIT, Stanford, Cambridge, ETH Zurich, or equivalent (QS top 50)',
+  },
+  iit_iisc: {
+    label: 'IIT / IISc',
+    description: 'Any IIT campus or IISc Bangalore',
+  },
+  nit_bits_top: {
+    label: 'NIT / BITS / Top Central University',
+    description: 'NIT, BITS Pilani, IISER, JNU, Delhi University, Hyderabad University',
+  },
+  state_regional: {
+    label: 'State / Regional University',
+    description: 'State or regional university (accepted case-by-case; no increment)',
+  },
+};
+
+// ─── Additional Qualification Increments ─────────────────────────────────────
+
+export interface AdditionalQualification {
+  id: string;
+  label: string;
+  description: string;
+  increments: number;
+}
+
+/** Each increment ≈ one step upward in the salary slab (size = incrementPercent setting) */
+export const ADDITIONAL_QUALIFICATIONS: AdditionalQualification[] = [
+  {
+    id: 'ug_premier_eng',
+    label: 'UG from IIT / NIT (Engineering)',
+    description: "Bachelor's degree from IIT or NIT — strong foundation for STEM research",
+    increments: 1,
+  },
+  {
+    id: 'ug_premier_non_eng',
+    label: 'UG from IIM / NLU / AIIMS (Non-Engineering)',
+    description: 'For management, law, or medical disciplines from premier institutions',
+    increments: 1,
+  },
+  {
+    id: 'international_exp',
+    label: 'International Research / Work Experience (≥ 6 months)',
+    description: 'Postdoc, research fellowship, or professional work at a reputed international institution',
+    increments: 1,
+  },
+];
+
+/** Hard cap on total qualification increments (PhD tier + additional) */
+export const MAX_TOTAL_INCREMENTS = 4;
+
+/**
+ * Per-cell increment rate for the WPU Pay Scale reference table.
+ * Mirrors UGC's 3% annual increment (one cell = one year of increment in UGC matrix).
+ * Edit this value to regenerate the entire reference table.
+ */
+export const WPU_CELL_INCREMENT_RATE = 0.03;
